@@ -1,0 +1,11 @@
+<form method="post" action="{% url 'edit_session_chairs' session.pk %}" id="session-chairs-form">
+  {% csrf_token %}
+  <h2 id="chairs-dialog-title">{{ session.name }}の座長</h2>
+  {% if form.fields %}
+    <p>カテゴリーごとに座長を入力してください。</p>
+    {% for field in form %}<div class="edit-field">{{ field.label_tag }} {{ field }} {{ field.errors }}</div>{% endfor %}
+  {% else %}
+    <p>先に演題を割り当て、カテゴリーを設定してください。</p>
+  {% endif %}
+  <div class="dialog-actions"><button type="button" class="dialog-cancel">閉じる</button><button type="submit">保存</button></div>
+</form>

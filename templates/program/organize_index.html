@@ -2,6 +2,6 @@
 <html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>年会一覧</title>
 <style>body{font-family:system-ui,sans-serif;background:#f4f6f8;color:#17212b;margin:0}header{background:#17324d;color:white;padding:1rem 1.5rem}h1{font-size:1.4rem;margin:0}main{padding:1.5rem;max-width:700px}.meeting{display:block;background:white;border:1px solid #cbd5df;border-radius:8px;padding:1rem;margin-bottom:.75rem;color:#17324d;text-decoration:none}.meeting:hover{background:#e8eef5}.meeting small{display:block;color:#526070;margin-top:.4rem}</style></head><body>
 <header><h1>年会一覧</h1></header><main>
-{% for meeting in meetings %}<a class="meeting" href="{% url 'organize' meeting.abbreviation %}"><strong>{{ meeting.name }}</strong><small>{{ meeting.start_date }}〜{{ meeting.end_date }}　{{ meeting.location }}　/organize/{{ meeting.abbreviation }}/</small></a>{% empty %}<p>年会情報がありません。管理画面で年会を作成してください。</p>{% endfor %}
+{% for meeting in meetings %}<a class="meeting" href="{% url 'organize' meeting.year %}"><strong>{{ meeting.name }}（{{ meeting.abbreviation }}）</strong><small>{{ meeting.start_date }}〜{{ meeting.end_date }}　{{ meeting.location }}</small></a>{% empty %}<p>年会情報がありません。管理画面で年会を作成してください。</p>{% endfor %}
 {% if has_legacy_sessions %}<a class="meeting" href="{% url 'organize_legacy' %}"><strong>年会未設定のセッション</strong><small>既存のセッションを確認できます。年会の割り当ては管理画面で行ってください。</small></a>{% endif %}
 </main></body></html>

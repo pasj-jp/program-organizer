@@ -2,16 +2,24 @@
 <!doctype html>
 <html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>セッション編成</title>
-<link rel="stylesheet" href="{% static 'program/organize.css' %}"></head><body>
-<header><h1>{% if legacy %}年会未設定{% else %}{{ meeting.name }}{% endif %} セッション編成</h1><a href="{% url 'organize_index' %}">年会一覧</a>{% if meeting %}<a href="{% url 'timetable' meeting.abbreviation %}">タイムテーブル</a>{% else %}<a href="{% url 'timetable_index' %}">タイムテーブル</a>{% endif %}<a href="{% url 'admin:index' %}">管理画面</a></header>
+<link rel="stylesheet" href="{% static 'program/organize.css' %}?v=7"></head><body>
+<header><h1>{% if legacy %}年会未設定{% else %}{{ meeting.name }}{% endif %} 編成ページ</h1><a href="{% url 'organize_index' %}">年会一覧</a>{% if meeting %}<a href="{% url 'timetable' meeting.year %}">公開ページ</a>{% endif %}{% if request.user.is_staff %}<a href="{% url 'admin:index' %}">管理画面</a>{% endif %}</header>
 <main>
+{% if meeting %}<nav class="page-tabs" aria-label="編成画面"><a href="{% url 'organize' meeting.year %}" aria-current="page">セッション編成</a><a href="{% url 'organize' meeting.year %}?tab=timetable">タイムテーブル</a></nav>{% endif %}
 {% for message in messages %}<p class="message">{{ message }}</p>{% endfor %}
-{% if can_add_session and not legacy %}<details class="create"><summary>新しいセッションを作成</summary><form method="post" action="{% url 'create_session' meeting.abbreviation %}">{% csrf_token %}{% for field in session_form %}{% if field.name != 'annual_meeting' %}<p>{{ field.label_tag }} {{ field }} {{ field.errors }}</p>{% endif %}{% endfor %}<button type="submit">作成</button></form></details>{{ session_form.media }}{% endif %}
+{% if meeting %}<div class="toolbar board-actions">
+  {% if can_add_session %}<button type="button" class="icon-action create-session-action" data-open-dialog="session-create-dialog" aria-label="セッションを作成" title="セッションを作成"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>{% endif %}
+  {% if can_import_program %}<button type="button" class="icon-action" data-open-dialog="program-import-dialog" aria-label="program.xlsx をインポート" title="program.xlsx をインポート"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v12m0 0-5-5m5 5 5-5M4 16v4h16v-4"/></svg></button>{% endif %}
+  <a class="icon-action" href="{% url 'export_program_excel' meeting.year %}" aria-label="program.xlsx をエクスポート" title="program.xlsx をエクスポート"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0-5 5m5-5 5 5M4 16v4h16v-4"/></svg></a>
+</div>{% endif %}
+{% if can_add_session and not legacy %}<dialog id="session-create-dialog" class="action-dialog" aria-labelledby="session-create-title"{% if session_form.errors %} data-open-on-error="true"{% endif %}><form method="post" action="{% url 'create_session' meeting.year %}">{% csrf_token %}<h2 id="session-create-title">新しいセッションを作成</h2><p class="hint">施設報告ポスターを作る前に、対応するポスターセッションを2つ作成してください。</p>{% for field in session_form %}{% if field.name != 'annual_meeting' %}<p class="edit-field">{{ field.label_tag }} {{ field }} {{ field.errors }}</p>{% endif %}{% endfor %}{{ session_form.non_field_errors }}<div class="dialog-actions"><button type="button" class="dialog-cancel">キャンセル</button><button type="submit">作成</button></div></form></dialog>{{ session_form.media }}{% endif %}
+{% if can_import_program %}<dialog id="program-import-dialog" class="action-dialog" aria-labelledby="program-import-title"{% if program_form.errors %} data-open-on-error="true"{% endif %}><form method="post" action="{% url 'import_program_excel' meeting.year %}" enctype="multipart/form-data">{% csrf_token %}<h2 id="program-import-title">program.xlsx をインポート</h2><p class="hint">対象年会の会期・演題登録番号を確認してから取り込みます。</p>{{ program_form.as_p }}<div class="dialog-actions"><button type="button" class="dialog-cancel">キャンセル</button><button type="submit">取り込む</button></div></form></dialog>{% endif %}
+{% if can_import_abstract %}<dialog id="abstract-import-dialog" class="action-dialog" aria-labelledby="abstract-import-title"{% if abstract_form.errors %} data-open-on-error="true"{% endif %}><form method="post" action="{% url 'import_abstract_excel' meeting.year %}" enctype="multipart/form-data">{% csrf_token %}<h2 id="abstract-import-title">abstract.xlsx をインポート</h2><p class="hint">演題登録番号で照合し、演題情報と著者情報を取り込みます。</p>{{ abstract_form.as_p }}<div class="dialog-actions"><button type="button" class="dialog-cancel">キャンセル</button><button type="submit">取り込む</button></div></form></dialog>{% endif %}
 <div class="toolbar"><span class="hint">{% if can_change %}演題カードを枠へドラッグして割り当てます。同じ枠内で並び替えもできます。{% else %}演題は閲覧のみできます。{% endif %}{% if can_reorder_sessions %} セッションは見出しのハンドルで並べ替えられます。{% endif %}</span></div>
 <p id="feedback" class="message" role="status" hidden></p>
-<div class="board" data-can-change="{{ can_change|yesno:'true,false' }}" data-can-reorder-sessions="{{ can_reorder_sessions|yesno:'true,false' }}" data-move-url="{% url 'move_presentation' %}" {% if meeting %}data-reorder-url="{% url 'reorder_sessions' meeting.abbreviation %}"{% endif %}>
+<div class="board" data-can-change="{{ can_change|yesno:'true,false' }}" data-can-reorder-sessions="{{ can_reorder_sessions|yesno:'true,false' }}" data-move-url="{% url 'move_presentation' %}" {% if meeting %}data-reorder-url="{% url 'reorder_sessions' meeting.year %}"{% endif %}>
 <section class="column unassigned">
-  <h2>未割り当て <span class="count">{{ unassigned|length }}</span></h2>
+  <h2>未割り当て <span class="count">{{ unassigned|length }}</span>{% if can_import_abstract %}<button type="button" class="icon-action unassigned-import" data-open-dialog="abstract-import-dialog" aria-label="abstract.xlsx をインポート" title="abstract.xlsx をインポート"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v12m0 0-5-5m5 5 5-5M4 16v4h16v-4"/></svg></button>{% endif %}</h2>
   <div class="format-filter">
     <label for="format-filter">発表形式</label>
     <select id="format-filter"><option value="">すべて</option>{% for format in presentation_formats %}<option value="format:{{ format }}">{{ format|default:'未設定' }}</option>{% endfor %}</select>
@@ -22,13 +30,19 @@
   </div>
   <div class="cards" data-session="">{% for talk in unassigned %}{% include 'program/_card.html' %}{% endfor %}</div>
 </section>
+<div class="sessions-area">
+  <div class="board-scroll-top" id="board-scroll-top" tabindex="0" aria-label="セッション一覧の横スクロール" hidden><div class="board-scroll-spacer" id="board-scroll-spacer"></div></div>
+  <div class="sessions-scroll" id="sessions-scroll"><div class="sessions-track" id="sessions-track">
 {% for session, talks in sessions %}
 <section class="column session-column" data-session-id="{{ session.pk }}">
-  <h2>{% if can_reorder_sessions %}<button type="button" class="session-handle" draggable="true" aria-label="{{ session.name }}を並べ替え" title="ドラッグしてセッションを並べ替え">⠿</button>{% endif %}{% if session.code %}{{ session.code }}　{% endif %}{{ session.name }} <span class="count">{{ talks|length }}</span><small>{{ session.date|default:'日付未設定' }}　{{ session.start_time|time:'H:i' }}<span class="end-time" data-session="{{ session.pk }}">{% if session.end_time %}–{{ session.end_time|time:'H:i' }}{% endif %}</span><br>{{ session.venue|default:'部屋未設定' }}　<a href="{% url 'admin:program_session_change' session.pk %}">編集</a></small></h2>
+  <h2>{% if can_reorder_sessions %}<button type="button" class="session-handle" draggable="true" aria-label="{{ session.name }}を並べ替え" title="ドラッグしてセッションを並べ替え">⠿</button>{% endif %}{% if session.code %}{{ session.code }}　{% endif %}{{ session.name }} <span class="count">{{ talks|length }}</span>{% if session.kind == 'oral' %}/{{ session.talk_limit }}{% endif %}<small>{{ session.get_kind_display }}　{% if session.kind == 'facility_report' %}{{ session.poster_session_one }}・{{ session.poster_session_two }}{% else %}{{ session.date|default:'日付未設定' }}　{{ session.start_time|time:'H:i' }}<span class="end-time" data-session="{{ session.pk }}">{% if session.end_time %}–{{ session.end_time|time:'H:i' }}{% endif %}</span><br>{{ session.venue|default:'部屋未設定' }}{% endif %}　<a href="{% url 'admin:program_session_change' session.pk %}">編集</a>{% if session.kind == 'oral' %}　{% if can_edit_chairs %}<button type="button" class="edit-chairs" data-edit-url="{% url 'edit_session_chairs' session.pk %}">座長を編集</button>{% endif %}{% for chair in session.chairs.all %}<br>{{ chair.category }}: {{ chair.name }}{% endfor %}{% endif %}</small></h2>
   <div class="cards" data-session="{{ session.pk }}">{% for talk in talks %}{% include 'program/_card.html' %}{% endfor %}</div>
 </section>
 {% endfor %}
+  </div></div>
+</div>
 </div>
 <dialog id="presentation-dialog" aria-labelledby="presentation-dialog-title"><div id="presentation-dialog-content"></div></dialog>
+<dialog id="chairs-dialog" aria-labelledby="chairs-dialog-title"><div id="chairs-dialog-content"></div></dialog>
 </main>
-<script defer src="{% static 'program/organize.js' %}"></script></body></html>
+<script defer src="{% static 'program/organize.js' %}?v=6"></script></body></html>

@@ -12,6 +12,10 @@
     .export-button{display:inline-block;background:#fff;color:#17324d;border-radius:6px;padding:.45rem .8rem;text-decoration:none;font-weight:700}
     .export-button:hover,.export-button:focus{background:#dcecf7}
     main{padding:1rem 1.2rem;max-width:1800px;margin:auto}.intro{color:#526070}
+    .page-tabs{display:flex;gap:.3rem;border-bottom:1px solid #cbd5df;margin:0 0 1rem}
+    .page-tabs a{display:inline-block;padding:.65rem 1rem;color:#526070;text-decoration:none;font-weight:700;border-bottom:3px solid transparent}
+    .page-tabs a:hover{color:#185979;background:#e8f4f9}
+    .page-tabs a[aria-current=page]{color:#185979;border-bottom-color:#24749d;background:#fff}
     .days-scroll{overflow-x:auto;border:1px solid #cbd5df;border-radius:10px;background:#e8eef5}
     .days-row{display:flex;gap:.7rem;width:max-content;padding:.7rem}
     .day{flex:none;width:var(--day-width);min-width:320px;background:#fff;border:1px solid #cbd5df;border-radius:7px;overflow:hidden}
@@ -49,12 +53,13 @@
     .withdrawn-row .status-label{display:inline-block;margin-left:.4rem;color:#8a5960;font-size:.78rem}
     .unscheduled{background:#fff;border:1px solid #cbd5df;border-radius:10px;padding:1rem 1.2rem;margin:1rem 0}
     #drag-feedback{color:#a32929;font-weight:600}
-    @media print{header nav,.intro{display:none}body{background:#fff}main{max-width:none;padding:0}.days-scroll{overflow:visible}.days-row{flex-wrap:wrap;width:auto}.day{break-inside:avoid}.session-block{print-color-adjust:exact;-webkit-print-color-adjust:exact}}
+    @media print{header nav,.intro,.page-tabs{display:none}body{background:#fff}main{max-width:none;padding:0}.days-scroll{overflow:visible}.days-row{flex-wrap:wrap;width:auto}.day{break-inside:avoid}.session-block{print-color-adjust:exact;-webkit-print-color-adjust:exact}}
   </style>
 </head>
 <body>
-<header><h1>{{ meeting.name }} タイムテーブル</h1><nav><a href="{% url 'timetable_index' %}">年会一覧</a>　<a class="export-button" href="{% url 'timetable_excel' meeting.abbreviation %}">Excelを出力</a>{% if request.user.is_staff %}　<a href="{% url 'organize' meeting.abbreviation %}">セッション編成</a>{% endif %}</nav></header>
+<header><h1>{{ meeting.name }} {% if editing %}編成ページ{% else %}タイムテーブル{% endif %}</h1><nav><a href="{% if editing %}{% url 'organize_index' %}{% else %}{% url 'timetable_index' %}{% endif %}">年会一覧</a>　<a class="export-button" href="{% url 'timetable_excel' meeting.year %}">Excelを出力</a>{% if editing %}　<a href="{% url 'timetable' meeting.year %}">公開ページ</a>{% if request.user.is_staff %}　<a href="{% url 'admin:index' %}">管理画面</a>{% endif %}{% endif %}</nav></header>
 <main>
+  {% if editing %}<nav class="page-tabs" aria-label="編成画面"><a href="{% url 'organize' meeting.year %}">セッション編成</a><a href="{% url 'organize' meeting.year %}?tab=timetable" aria-current="page">タイムテーブル</a></nav>{% endif %}
   <p class="intro">{{ meeting.start_date }}〜{{ meeting.end_date }}　{{ meeting.location }}。日付を横に並べています。時間枠を選ぶと下の演題一覧が開きます。{% if can_move_sessions %}カードを別の日・部屋の時間帯へドラッグして移動できます（5分刻み）。{% endif %}</p>
   {% if can_move_sessions %}<form id="timetable-csrf" hidden>{% csrf_token %}</form><p id="drag-feedback" role="status" hidden></p>{% endif %}
   <div class="days-scroll" id="days-scroll"><div class="days-row">
@@ -69,7 +74,7 @@
           {% for venue in day.venues %}
           <div class="venue-lane" data-venue-id="{{ venue.id|default_if_none:'' }}">
             {% for block in venue.blocks %}
-            <a class="session-block{% if can_move_sessions %} draggable-session{% endif %}" href="#session-{{ block.session.pk }}" data-session-id="{{ block.session.pk }}" data-start-minute="{{ block.start }}" data-duration="{{ block.duration }}" title="{{ block.session.name }}　{{ block.session.start_time|time:'H:i' }}{% if block.session.end_time %}–{{ block.session.end_time|time:'H:i' }}{% endif %}" style="top:{{ block.top }}px;height:{{ block.height }}px;left:{{ block.left }}%;width:calc({{ block.width }}% - 8px)"><strong>{% if block.session.code %}{{ block.session.code }}　{% endif %}{{ block.session.name }}</strong>{% if block.show_meta %}<small>{{ block.session.start_time|time:'H:i' }}{% if block.session.end_time %}–{{ block.session.end_time|time:'H:i' }}{% else %}　終了未定{% endif %}{% if block.first_number %}　{{ block.first_number }}{% if block.last_number != block.first_number %}–{{ block.last_number }}{% endif %}{% endif %}</small>{% endif %}</a>
+            <a class="session-block{% if can_move_sessions %} draggable-session{% endif %}" href="#session-{{ block.session.pk }}" data-session-id="{{ block.session.pk }}" data-start-minute="{{ block.start }}" data-duration="{{ block.duration }}" title="{{ block.session.name }}　{{ block.session.start_time|time:'H:i' }}{% if block.session.end_time %}–{{ block.session.end_time|time:'H:i' }}{% endif %}" style="top:{{ block.top }}px;height:{{ block.height }}px;left:{{ block.left }}%;width:calc({{ block.width }}% - 8px)"><strong>{% if block.session.code %}{{ block.session.code }}　{% endif %}{{ block.session.name }}</strong>{% if block.show_meta %}<small>{{ block.session.start_time|time:'H:i' }}{% if block.session.end_time %}–{{ block.session.end_time|time:'H:i' }}{% else %}　終了未定{% endif %}{% if block.first_number %}　{{ block.first_number }}{% if block.last_number != block.first_number %}–{{ block.last_number }}{% endif %}{% endif %}{% if block.facility_count %}　施設報告{{ block.facility_count }}件{% endif %}</small>{% endif %}</a>
             {% endfor %}
           </div>
           {% endfor %}
@@ -85,6 +90,7 @@
       {% for block in day.sessions %}
       <details class="session-detail" id="session-{{ block.session.pk }}"><summary>{% if block.session.code %}{{ block.session.code }}　{% endif %}{{ block.session.name }}　{{ block.session.start_time|time:'H:i' }}{% if block.session.end_time %}–{{ block.session.end_time|time:'H:i' }}{% endif %}　{{ block.venue_name }}</summary>
         {% if block.session.description %}<p>{{ block.session.description }}</p>{% endif %}
+        {% for chair in block.session.chairs.all %}<p>座長（{{ chair.category }}）: {{ chair.name }}</p>{% endfor %}
         {% if block.talk_rows %}<table><thead><tr><th>時刻</th><th>番号</th><th>演題・登壇者</th></tr></thead><tbody>{% for row in block.talk_rows %}<tr{% if row.withdrawn %} class="withdrawn-row"{% endif %}><td>{{ row.start }}–{{ row.end }}</td><td>{{ row.talk.program_number|default:'未設定' }}</td><td><span class="talk-title">{{ row.talk.title }}</span>{% if row.withdrawn %}<span class="status-label">発表取り消し</span>{% endif %}<br>{% for author in row.presenters %}{{ author }}{% if author.affiliation %}（{{ author.affiliation }}）{% endif %}{% if not forloop.last %}、{% endif %}{% endfor %}</td></tr>{% endfor %}</tbody></table>{% else %}<p>演題は登録されていません。</p>{% endif %}
       </details>
       {% endfor %}
@@ -102,7 +108,7 @@ document.querySelectorAll('.session-block').forEach(block => block.addEventListe
 const scrollArea = document.getElementById('days-scroll');
 const feedback = document.getElementById('drag-feedback');
 const csrfToken = document.querySelector('#timetable-csrf input[name=csrfmiddlewaretoken]').value;
-const scrollKey = 'timetable-scroll-{{ meeting.abbreviation|escapejs }}';
+const scrollKey = 'timetable-scroll-{{ meeting.year|escapejs }}';
 try { scrollArea.scrollLeft = Number(sessionStorage.getItem(scrollKey) || 0); } catch (_) {}
 const formatTime = minute => `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`;
 const venueId = lane => lane.dataset.venueId ? Number(lane.dataset.venueId) : null;
@@ -202,7 +208,7 @@ document.querySelectorAll('.draggable-session').forEach(block => {
     }
     if (completed.target.date === completed.sourceDate && completed.target.venue === completed.sourceVenue && completed.target.minute === completed.start) return;
     try {
-      const response = await fetch('{% url 'move_session_time' meeting.abbreviation %}', {
+      const response = await fetch('{% url 'move_session_time' meeting.year %}', {
         method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':csrfToken},
         body:JSON.stringify({session_id:Number(block.dataset.sessionId),date:completed.target.date,
           venue_id:completed.target.venue,start_time:formatTime(completed.target.minute),

@@ -39,12 +39,23 @@ def assign_lanes(blocks):
 
 def build_timetable(meeting):
     session_talks = Presentation.objects.prefetch_related('authors', 'venue')
-    sessions = Session.objects.filter(annual_meeting=meeting).select_related('venue').prefetch_related(
+    sessions = list(Session.objects.filter(annual_meeting=meeting).select_related('venue').prefetch_related('chairs',
         Prefetch('presentations', queryset=session_talks, to_attr='session_talks')
-    ).order_by('date', 'start_time', 'name', 'pk')
+    ).order_by('date', 'start_time', 'name', 'pk'))
+    facility_by_poster = defaultdict(list)
+    for report in sessions:
+        if report.kind != Session.Kind.FACILITY_REPORT:
+            continue
+        report_talks = sorted(report.session_talks,
+                              key=lambda talk: (talk.session_order, talk.submission_number, talk.pk))
+        for poster_id in (report.poster_session_one_id, report.poster_session_two_id):
+            if poster_id:
+                facility_by_poster[poster_id].extend(report_talks)
     by_date = defaultdict(list)
     unscheduled = []
     for session in sessions:
+        if session.kind == Session.Kind.FACILITY_REPORT:
+            continue
         talks = sorted(session.session_talks,
                        key=lambda talk: (talk.session_order, talk.submission_number, talk.pk))
         session.timetable_talks = talks
@@ -52,15 +63,21 @@ def build_timetable(meeting):
             unscheduled.append(session)
             continue
         start = minutes(session.start_time)
-        duration = len(talks) * session.minutes_per_presentation if talks else (session.empty_duration_minutes or 30)
+        duration = session.slot_minutes() or 30
         end = start + duration
         talk_rows = []
-        for index, talk in enumerate(talks):
-            computed_start = datetime.combine(session.date, session.start_time) + timedelta(
-                minutes=index * session.minutes_per_presentation)
-            display_start = talk.start_time or computed_start.time()
-            display_end = talk.end_time or (datetime.combine(session.date, display_start)
-                                            + timedelta(minutes=session.minutes_per_presentation)).time()
+        displayed_talks = talks + (facility_by_poster[session.pk] if session.kind == Session.Kind.POSTER else [])
+        for index, talk in enumerate(displayed_talks):
+            if session.kind == Session.Kind.POSTER:
+                display_start = session.start_time
+                display_end = (datetime.combine(session.date, display_start)
+                               + timedelta(minutes=duration)).time()
+            else:
+                computed_start = datetime.combine(session.date, session.start_time) + timedelta(
+                    minutes=index * session.minutes_per_presentation)
+                display_start = talk.start_time or computed_start.time()
+                display_end = talk.end_time or (datetime.combine(session.date, display_start)
+                                                + timedelta(minutes=session.minutes_per_presentation)).time()
             talk_rows.append({
                 'talk': talk,
                 'withdrawn': talk.status == Presentation.Status.WITHDRAWN,
@@ -72,6 +89,7 @@ def build_timetable(meeting):
             'session': session, 'talks': talks, 'talk_rows': talk_rows,
             'start': start, 'end': end,
             'duration': duration,
+            'facility_count': len(facility_by_poster[session.pk]) if session.kind == Session.Kind.POSTER else 0,
             'venue_key': session.venue_id, 'venue_name': session.venue.name if session.venue else '部屋未設定',
             'first_number': talks[0].program_number if talks else None,
             'last_number': talks[-1].program_number if talks else None,

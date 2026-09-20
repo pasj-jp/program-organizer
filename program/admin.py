@@ -2,7 +2,7 @@ from django.contrib import admin, messages
 from django.urls import path
 from django.shortcuts import render, redirect
 from django import forms
-from .models import AnnualMeeting, Author, Presentation, Session, Venue
+from .models import AnnualMeeting, Author, Presentation, Session, SessionChair, Venue
 from .forms import PresentationForm, SessionForm
 from .importer import import_abstracts
 
@@ -38,14 +38,14 @@ class AuthorInline(admin.StackedInline):
 class PresentationAdmin(admin.ModelAdmin):
     form = PresentationForm
     change_list_template = 'admin/program/presentation/change_list.html'
-    list_display = ('submission_number', 'program_number', 'short_title', 'presenter', 'presentation_format', 'session', 'start_time', 'effective_venue', 'status')
+    list_display = ('submission_number', 'program_number', 'short_title', 'presenter', 'presentation_format', 'confirmed_category', 'session', 'start_time', 'effective_venue', 'status')
     list_filter = ('status', 'presentation_format', 'session', 'venue')
     search_fields = ('submission_number', 'program_number', 'title', 'title_en', 'authors__family_name', 'authors__given_name', 'authors__family_name_en', 'authors__given_name_en')
     inlines = [AuthorInline]
     actions = ['withdraw', 'restore']
     fieldsets = (
         ('編成', {'fields': ('program_number', 'session', 'start_time', 'end_time', 'venue', 'status', 'withdrawal_note', 'organizer_note')}),
-        ('演題', {'fields': ('submission_number', 'registration_number', 'presentation_format', 'title', 'title_en', 'abstract', 'category_first', 'category_second')}),
+        ('演題', {'fields': ('submission_number', 'registration_number', 'presentation_format', 'title', 'title_en', 'abstract', 'category_first', 'category_second', 'confirmed_category')}),
         ('登録者', {'fields': ('login_id', 'email')}),
         ('元データの著者表記', {'classes': ('collapse',), 'fields': ('author_text', 'author_text_en', 'affiliation_text', 'affiliation_text_en')}),
     )
@@ -104,13 +104,24 @@ class AuthorAdmin(admin.ModelAdmin):
     list_filter = ('is_presenter',)
 
 
+class SessionChairInline(admin.TabularInline):
+    model = SessionChair
+    extra = 0
+    fields = ('category', 'name')
+
+
 @admin.register(Session)
 class SessionAdmin(admin.ModelAdmin):
     form = SessionForm
     readonly_fields = ('end_time',)
-    fields = ('name', 'code', 'annual_meeting', 'date', 'start_time', 'minutes_per_presentation', 'empty_duration_minutes', 'end_time', 'venue', 'description')
-    list_display = ('name', 'code', 'annual_meeting', 'date', 'start_time', 'end_time', 'minutes_per_presentation', 'venue')
-    list_filter = ('annual_meeting', 'date', 'venue')
+    fields = ('name', 'code', 'annual_meeting', 'kind', 'date', 'start_time', 'venue',
+              'minutes_per_presentation', 'talk_limit', 'slot_duration_minutes',
+              'poster_session_one', 'poster_session_two', 'empty_duration_minutes', 'end_time', 'description')
+    list_display = ('name', 'code', 'annual_meeting', 'kind', 'date', 'start_time', 'end_time', 'talk_limit', 'venue')
+    list_filter = ('annual_meeting', 'kind', 'date', 'venue')
+
+    def get_inlines(self, request, obj):
+        return [SessionChairInline] if obj and obj.kind == Session.Kind.ORAL else []
 
 
 class RoomInline(admin.TabularInline):
@@ -121,9 +132,13 @@ class RoomInline(admin.TabularInline):
 
 @admin.register(AnnualMeeting)
 class AnnualMeetingAdmin(admin.ModelAdmin):
-    list_display = ('name', 'abbreviation', 'start_date', 'end_date', 'location')
+    list_display = ('name', 'meeting_year', 'abbreviation', 'start_date', 'end_date', 'location')
     search_fields = ('name', 'abbreviation', 'location')
     inlines = [RoomInline]
+
+    @admin.display(description='開催年')
+    def meeting_year(self, obj):
+        return obj.year
 
 
 @admin.register(Venue)

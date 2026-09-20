@@ -2,18 +2,20 @@ import json
 import re
 from datetime import date, datetime, timedelta
 from django.contrib import messages
-from django.contrib.admin.views.decorators import staff_member_required
-from django.core.exceptions import PermissionDenied
+from django.contrib.auth.decorators import login_required
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_http_methods
 from django.views.decorators.http import require_POST
-from .models import AnnualMeeting, Presentation, Session, Venue
-from .forms import BoardPresentationForm, SessionForm
+from .models import AnnualMeeting, Presentation, Session, SessionChair, Venue
+from .forms import AbstractExcelImportForm, BoardPresentationForm, ProgramExcelImportForm, SessionChairsForm, SessionForm
 from .timetable import build_timetable
 from .excel_export import render_timetable_excel
+from .program_excel import export_program, import_program
+from .importer import import_abstracts
 
 
 def _require_board_view_permission(user):
@@ -21,7 +23,7 @@ def _require_board_view_permission(user):
         raise PermissionDenied
 
 
-@staff_member_required
+@login_required
 def organize_index(request):
     _require_board_view_permission(request.user)
     return render(request, 'program/organize_index.html', {
@@ -30,21 +32,24 @@ def organize_index(request):
     })
 
 
-@staff_member_required
-def organize(request, abbreviation):
+@login_required
+def organize(request, year):
     _require_board_view_permission(request.user)
-    meeting = get_object_or_404(AnnualMeeting, abbreviation=abbreviation)
+    meeting = get_object_or_404(AnnualMeeting, start_date__year=year)
+    if request.GET.get('tab') == 'timetable':
+        return _render_timetable(request, meeting, editing=True)
     return _organize_board(request, meeting)
 
 
-@staff_member_required
+@login_required
 def organize_legacy(request):
     _require_board_view_permission(request.user)
     return _organize_board(request, None)
 
 
-def _organize_board(request, meeting):
-    sessions = list(Session.objects.filter(annual_meeting=meeting).select_related('venue').order_by('board_order', 'date', 'start_time', 'name', 'id'))
+def _organize_board(request, meeting, session_form=None, program_form=None, abstract_form=None):
+    sessions = list(Session.objects.filter(annual_meeting=meeting).select_related(
+        'venue', 'poster_session_one', 'poster_session_two').prefetch_related('chairs').order_by('board_order', 'date', 'start_time', 'name', 'id'))
     presentations = Presentation.objects.filter(
         Q(status=Presentation.Status.ACTIVE) | Q(status=Presentation.Status.WITHDRAWN, session__isnull=False)
     ).filter(
@@ -66,21 +71,27 @@ def _organize_board(request, meeting):
         'unassigned': unassigned,
         'presentation_formats': sorted(presentation_formats),
         'presentation_categories': sorted(presentation_categories),
-        'session_form': SessionForm(meeting_id=meeting.pk) if meeting else None,
+        'session_form': session_form or (SessionForm(meeting_id=meeting.pk) if meeting else None),
+        'program_form': program_form or ProgramExcelImportForm(),
+        'abstract_form': abstract_form or AbstractExcelImportForm(),
         'meeting': meeting,
         'legacy': meeting is None,
         'can_change': request.user.has_perm('program.change_presentation'),
         'can_add_session': request.user.has_perm('program.add_session'),
         'can_reorder_sessions': meeting is not None and request.user.has_perm('program.change_session'),
+        'can_edit_chairs': request.user.has_perm('program.change_session'),
+        'can_import_program': meeting is not None and all(request.user.has_perm(f'program.{permission}') for permission in
+            ('add_session', 'change_session', 'add_presentation', 'change_presentation', 'add_venue')),
+        'can_import_abstract': meeting is not None and request.user.has_perm('program.add_presentation'),
     })
 
 
-@staff_member_required
+@login_required
 @require_POST
-def create_session(request, abbreviation):
+def create_session(request, year):
     if not request.user.has_perm('program.add_session'):
         raise PermissionDenied
-    meeting = get_object_or_404(AnnualMeeting, abbreviation=abbreviation)
+    meeting = get_object_or_404(AnnualMeeting, start_date__year=year)
     data = request.POST.copy()
     data['annual_meeting'] = meeting.pk
     form = SessionForm(data, meeting_id=meeting.pk)
@@ -89,10 +100,58 @@ def create_session(request, abbreviation):
         messages.success(request, 'セッションを作成しました。')
     else:
         messages.error(request, 'セッションを作成できませんでした。入力内容を確認してください。')
-    return redirect('organize', abbreviation=meeting.abbreviation)
+        return _organize_board(request, meeting, session_form=form)
+    return redirect('organize', year=meeting.year)
 
 
-@staff_member_required
+@login_required
+@require_POST
+def import_program_excel(request, year):
+    permissions = ('add_session', 'change_session', 'add_presentation', 'change_presentation', 'add_venue')
+    if not all(request.user.has_perm(f'program.{permission}') for permission in permissions):
+        raise PermissionDenied
+    meeting = get_object_or_404(AnnualMeeting, start_date__year=year)
+    form = ProgramExcelImportForm(request.POST, request.FILES)
+    if form.is_valid():
+        try:
+            created, updated, sessions = import_program(form.cleaned_data['file'], meeting)
+        except (ValueError, ValidationError) as exc:
+            form.add_error('file', str(exc))
+        else:
+            messages.success(request, f'プログラムを取り込みました。セッション {sessions} 件、演題 新規 {created} 件・更新 {updated} 件。')
+            return redirect('organize', year=year)
+    return _organize_board(request, meeting, program_form=form)
+
+
+@login_required
+@require_POST
+def import_abstract_excel(request, year):
+    if not request.user.has_perm('program.add_presentation'):
+        raise PermissionDenied
+    meeting = get_object_or_404(AnnualMeeting, start_date__year=year)
+    form = AbstractExcelImportForm(request.POST, request.FILES)
+    if form.is_valid():
+        try:
+            created, updated = import_abstracts(form.cleaned_data['file'])
+        except (ValueError, OSError) as exc:
+            form.add_error('file', str(exc))
+        else:
+            messages.success(request, f'アブストラクトを取り込みました。新規 {created} 件・更新 {updated} 件。')
+            return redirect('organize', year=year)
+    return _organize_board(request, meeting, abstract_form=form)
+
+
+@login_required
+def export_program_excel(request, year):
+    _require_board_view_permission(request.user)
+    meeting = get_object_or_404(AnnualMeeting, start_date__year=year)
+    response = HttpResponse(export_program(meeting),
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    response['Content-Disposition'] = 'attachment; filename="program.xlsx"'
+    return response
+
+
+@login_required
 @require_http_methods(['GET', 'POST'])
 def edit_presentation(request, presentation_id):
     if not request.user.has_perm('program.change_presentation'):
@@ -106,12 +165,32 @@ def edit_presentation(request, presentation_id):
                   status=400 if request.method == 'POST' else 200)
 
 
-@staff_member_required
-@require_POST
-def reorder_sessions(request, abbreviation):
+@login_required
+@require_http_methods(['GET', 'POST'])
+def edit_session_chairs(request, session_id):
     if not request.user.has_perm('program.change_session'):
         raise PermissionDenied
-    meeting = get_object_or_404(AnnualMeeting, abbreviation=abbreviation)
+    session = get_object_or_404(Session, pk=session_id, kind=Session.Kind.ORAL)
+    form = SessionChairsForm(request.POST or None, session=session)
+    if request.method == 'POST' and form.is_valid():
+        with transaction.atomic():
+            for index, category in enumerate(form.categories):
+                name = form.cleaned_data[f'chair_{index}'].strip()
+                if name:
+                    SessionChair.objects.update_or_create(session=session, category=category, defaults={'name': name})
+                else:
+                    SessionChair.objects.filter(session=session, category=category).delete()
+        return JsonResponse({'ok': True})
+    return render(request, 'program/_session_chairs_form.html', {'form': form, 'session': session},
+                  status=400 if request.method == 'POST' else 200)
+
+
+@login_required
+@require_POST
+def reorder_sessions(request, year):
+    if not request.user.has_perm('program.change_session'):
+        raise PermissionDenied
+    meeting = get_object_or_404(AnnualMeeting, start_date__year=year)
     try:
         order = [int(pk) for pk in json.loads(request.body)['order']]
     except (ValueError, TypeError, KeyError, json.JSONDecodeError):
@@ -127,7 +206,7 @@ def reorder_sessions(request, abbreviation):
     return JsonResponse({'ok': True})
 
 
-@staff_member_required
+@login_required
 @require_POST
 def move_presentation(request):
     if not request.user.has_perm('program.change_presentation'):
@@ -142,11 +221,20 @@ def move_presentation(request):
         return JsonResponse({'error': '不正なデータです。'}, status=400)
     if len(order) != len(set(order)) or presentation_id not in order:
         return JsonResponse({'error': '演題の順序が不正です。'}, status=400)
-    if target_id is not None and not Session.objects.filter(pk=target_id).exists():
-        return JsonResponse({'error': 'セッションが見つかりません。'}, status=404)
     with transaction.atomic():
         moved = get_object_or_404(Presentation.objects.select_for_update(), pk=presentation_id, status=Presentation.Status.ACTIVE)
         old_id = moved.session_id
+        target_session = None
+        if target_id is not None:
+            target_session = Session.objects.select_for_update().filter(pk=target_id).first()
+            if target_session is None:
+                return JsonResponse({'error': 'セッションが見つかりません。'}, status=404)
+            if not target_session.accepts_presentation(moved):
+                return JsonResponse({'error': '発表形式がセッションと一致しません。'}, status=400)
+            if (old_id != target_id and target_session.kind == Session.Kind.ORAL
+                    and target_session.talk_limit is not None
+                    and target_session.presentations.count() >= target_session.talk_limit):
+                return JsonResponse({'error': 'この口頭発表セッションは満員です。'}, status=400)
         target_talks = Presentation.objects.filter(session_id=target_id)
         if target_id is None:
             target_talks = target_talks.filter(status=Presentation.Status.ACTIVE)
@@ -176,7 +264,8 @@ def move_presentation(request):
         str(pk): {'number': number or '', 'submission': submission}
         for pk, number, submission in changed_talks.values_list('pk', 'program_number', 'submission_number')
     }
-    return JsonResponse({'ok': True, 'program_numbers': program_numbers, 'end_times': {
+    return JsonResponse({'ok': True, 'program_numbers': program_numbers,
+        'confirmed_category': moved.confirmed_category, 'end_times': {
         str(session.pk): session.end_time.strftime('%H:%M') if session.end_time else ''
         for session in changed_sessions
     }})
@@ -186,17 +275,22 @@ def timetable_index(request):
     return render(request, 'program/timetable_index.html', {'meetings': AnnualMeeting.objects.all()})
 
 
-def timetable(request, abbreviation):
-    meeting = get_object_or_404(AnnualMeeting, abbreviation=abbreviation)
+def timetable(request, year):
+    meeting = get_object_or_404(AnnualMeeting, start_date__year=year)
+    return _render_timetable(request, meeting, editing=False)
+
+
+def _render_timetable(request, meeting, editing):
     days, unscheduled = build_timetable(meeting)
     return render(request, 'program/timetable.html', {
         'meeting': meeting, 'days': days, 'unscheduled': unscheduled,
-        'can_move_sessions': request.user.is_staff and request.user.has_perm('program.change_session'),
+        'editing': editing,
+        'can_move_sessions': editing and request.user.has_perm('program.change_session'),
     })
 
 
-def timetable_excel(request, abbreviation):
-    meeting = get_object_or_404(AnnualMeeting, abbreviation=abbreviation)
+def timetable_excel(request, year):
+    meeting = get_object_or_404(AnnualMeeting, start_date__year=year)
     days, unscheduled = build_timetable(meeting)
     response = HttpResponse(render_timetable_excel(meeting, days, unscheduled),
                             content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
@@ -204,9 +298,9 @@ def timetable_excel(request, abbreviation):
     return response
 
 
-@staff_member_required
+@login_required
 @require_POST
-def move_session_time(request, abbreviation):
+def move_session_time(request, year):
     if not request.user.has_perm('program.change_session'):
         raise PermissionDenied
     try:
@@ -228,9 +322,11 @@ def move_session_time(request, abbreviation):
         new_start = datetime.strptime(value, '%H:%M').time()
     except (ValueError, TypeError, KeyError, json.JSONDecodeError):
         return JsonResponse({'error': '開始時刻が不正です。'}, status=400)
-    meeting = get_object_or_404(AnnualMeeting, abbreviation=abbreviation)
+    meeting = get_object_or_404(AnnualMeeting, start_date__year=year)
     with transaction.atomic():
         session = get_object_or_404(Session.objects.select_for_update(), pk=session_id, annual_meeting=meeting)
+        if session.kind == Session.Kind.FACILITY_REPORT:
+            return JsonResponse({'error': '施設報告ポスターの時間は対応するポスターセッションで設定してください。'}, status=400)
         if not session.date or not session.start_time:
             return JsonResponse({'error': '日時未設定のセッションは移動できません。'}, status=400)
         target_date = target_date or session.date
@@ -240,8 +336,7 @@ def move_session_time(request, abbreviation):
             target_venue_id = session.venue_id
         if target_venue_id is not None and not Venue.objects.filter(pk=target_venue_id, annual_meeting=meeting).exists():
             return JsonResponse({'error': 'この年会の部屋が見つかりません。'}, status=400)
-        count = session.presentations.count()
-        duration = count * session.minutes_per_presentation if count else (session.empty_duration_minutes or 30)
+        duration = session.slot_minutes() or 30
         if (session.start_time.strftime('%H:%M') != expected_start or duration != expected_duration
                 or (data.get('expected_date') and session.date.isoformat() != data['expected_date'])
                 or ('expected_venue_id' in data and session.venue_id != data['expected_venue_id'])):
