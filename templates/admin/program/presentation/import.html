@@ -1,0 +1,6 @@
+{% extends 'admin/base_site.html' %}
+{% block content %}
+<h1>アブストラクトのインポート</h1>
+<p>1枚目のシートを読み込みます。同じ演題登録番号は更新し、プログラム番号、セッション、時刻、部屋、発表取り消し状態は保持します。</p>
+<form method="post" enctype="multipart/form-data">{% csrf_token %}{{ form.as_p }}<input type="submit" value="インポート"></form>
+{% endblock %}

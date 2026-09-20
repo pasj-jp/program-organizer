@@ -1,0 +1,8 @@
+<article class="card{% if talk.status == 'withdrawn' %} withdrawn{% endif %}" data-id="{{ talk.pk }}" data-status="{{ talk.status }}" data-format="{{ talk.presentation_format }}" data-category-first="{{ talk.category_first }}" data-category-second="{{ talk.category_second }}">
+  <strong>{{ talk.title }}</strong>
+  {% if talk.status == 'withdrawn' %}<div class="withdrawn-label">発表取り消し</div>{% endif %}
+  <div class="category-details meta"><div>第1希望: {{ talk.category_first|default:'未設定' }}</div><div>第2希望: {{ talk.category_second|default:'未設定' }}</div></div>
+  <div class="meta program-number">{{ talk.program_number|default:talk.submission_number }}</div>
+  <div class="meta">{% for author in talk.authors.all %}{% if author.is_presenter %}{{ author }}{% if not forloop.last %} {% endif %}{% endif %}{% endfor %}</div>
+  {% if can_change %}<button type="button" class="edit-presentation" draggable="false" data-edit-url="{% url 'edit_presentation' talk.pk %}" aria-label="演題を編集: {{ talk.title }}" title="演題を編集"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 20h4l11-11-4-4L4 16v4zm13-15 2-2 2 2-2 2-2-2z"/></svg></button>{% endif %}
+</article>

@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{ meeting.name }} タイムテーブル</title>
+  <style>
+    :root{font-family:system-ui,sans-serif;color:#17212b;background:#f4f6f8}
+    *{box-sizing:border-box}body{margin:0}
+    header{background:#17324d;color:white;padding:1rem 1.5rem;display:flex;gap:1.2rem;align-items:center;flex-wrap:wrap}
+    header h1{font-size:1.4rem;margin:0}header a{color:white}
+    .export-button{display:inline-block;background:#fff;color:#17324d;border-radius:6px;padding:.45rem .8rem;text-decoration:none;font-weight:700}
+    .export-button:hover,.export-button:focus{background:#dcecf7}
+    main{padding:1rem 1.2rem;max-width:1800px;margin:auto}.intro{color:#526070}
+    .days-scroll{overflow-x:auto;border:1px solid #cbd5df;border-radius:10px;background:#e8eef5}
+    .days-row{display:flex;gap:.7rem;width:max-content;padding:.7rem}
+    .day{flex:none;width:var(--day-width);min-width:320px;background:#fff;border:1px solid #cbd5df;border-radius:7px;overflow:hidden}
+    .day h2{margin:0;padding:.7rem .9rem;background:#dce8f1;font-size:1.05rem}
+    .day h2 small{font-weight:normal;color:#526070}
+    .schedule{width:var(--grid-width)}
+    .venue-heads,.lanes{display:grid;grid-template-columns:64px repeat(var(--venue-count),250px)}
+    .venue-heads{border-bottom:2px solid #9bafc1;background:#fff}
+    .venue-head,.time-head{padding:.5rem;font-size:.85rem;font-weight:700}
+    .venue-head{text-align:center;border-left:1px solid #d7e0e7}
+    .axis,.venue-lane{position:relative;height:var(--lane-height)}
+    .axis{border-right:1px solid #b7c7d5}
+    .axis-label{position:absolute;right:7px;transform:translateY(-50%);font-size:.72rem;color:#526070}
+    .venue-lane{border-right:1px solid #d7e0e7;background:repeating-linear-gradient(to bottom,#fff 0,#fff 71px,#e3e9ef 71px,#e3e9ef 72px)}
+    .venue-lane.drop-target{background-color:#dff2e5;background-blend-mode:multiply;outline:2px solid #20864a;outline-offset:-2px}
+    .session-block{position:absolute;z-index:1;display:block;background:#d9e9f5;border:1px solid #7ca5c4;border-left:4px solid #2773a4;border-radius:5px;padding:.15rem .35rem;color:#17324d;text-decoration:none;overflow:hidden;font-size:.78rem;line-height:1.2}
+    .session-block:hover,.session-block:focus{background:#bcdcf0;z-index:3;outline:2px solid #2773a4}
+    .session-block strong{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .session-block small{display:block;margin-top:.15rem}
+    .session-block.draggable-session{cursor:grab;touch-action:none}
+    .session-block.source-dragging{opacity:.35}
+    .session-block.drag-ghost{position:fixed!important;z-index:100;pointer-events:none;box-shadow:0 4px 14px #17324d77;opacity:.95;cursor:grabbing}
+    .session-block.drag-ghost::after{content:attr(data-preview-time);position:absolute;right:2px;top:2px;background:#fff;padding:0 .2rem;border-radius:3px;font-weight:700}
+    .empty{padding:1rem;color:#526070}
+    .details{margin-top:1rem;background:#fff;border:1px solid #cbd5df;border-radius:10px;padding:.5rem 1rem 1rem}
+    .details h2{font-size:1.1rem;margin:1rem 0 .4rem}.detail-day+.detail-day{border-top:1px solid #cbd5df}
+    .session-detail{border-bottom:1px solid #e0e6eb;scroll-margin-top:1rem}
+    .session-detail summary{cursor:pointer;padding:.55rem .2rem;font-weight:600}
+    .session-detail p{margin:.25rem 0 .7rem;color:#526070;font-size:.9rem}
+    .session-detail table{width:100%;border-collapse:collapse}
+    .session-detail th,.session-detail td{text-align:left;border-bottom:1px solid #e0e6eb;padding:.45rem .5rem;vertical-align:top}
+    .session-detail th{background:#f4f6f8}.talk-title{font-weight:600}
+    .withdrawn-row{color:#8a959f}
+    .withdrawn-row .talk-title{text-decoration:line-through}
+    .withdrawn-row .status-label{display:inline-block;margin-left:.4rem;color:#8a5960;font-size:.78rem}
+    .unscheduled{background:#fff;border:1px solid #cbd5df;border-radius:10px;padding:1rem 1.2rem;margin:1rem 0}
+    #drag-feedback{color:#a32929;font-weight:600}
+    @media print{header nav,.intro{display:none}body{background:#fff}main{max-width:none;padding:0}.days-scroll{overflow:visible}.days-row{flex-wrap:wrap;width:auto}.day{break-inside:avoid}.session-block{print-color-adjust:exact;-webkit-print-color-adjust:exact}}
+  </style>
+</head>
+<body>
+<header><h1>{{ meeting.name }} タイムテーブル</h1><nav><a href="{% url 'timetable_index' %}">年会一覧</a>　<a class="export-button" href="{% url 'timetable_excel' meeting.abbreviation %}">Excelを出力</a>{% if request.user.is_staff %}　<a href="{% url 'organize' meeting.abbreviation %}">セッション編成</a>{% endif %}</nav></header>
+<main>
+  <p class="intro">{{ meeting.start_date }}〜{{ meeting.end_date }}　{{ meeting.location }}。日付を横に並べています。時間枠を選ぶと下の演題一覧が開きます。{% if can_move_sessions %}カードを別の日・部屋の時間帯へドラッグして移動できます（5分刻み）。{% endif %}</p>
+  {% if can_move_sessions %}<form id="timetable-csrf" hidden>{% csrf_token %}</form><p id="drag-feedback" role="status" hidden></p>{% endif %}
+  <div class="days-scroll" id="days-scroll"><div class="days-row">
+    {% for day in days %}
+    <section class="day" data-date="{{ day.date|date:'Y-m-d' }}" data-first-minute="{{ day.first_minute }}" data-pixels-per-minute="{{ day.pixels_per_minute }}" style="--day-width:{{ day.grid_width }}px;--grid-width:{{ day.grid_width }}px;--lane-height:{{ day.height }}px">
+      <h2>{{ day.date|date:'n月j日（D）' }} <small>{{ meeting.location }}</small></h2>
+      {% if day.venues %}
+      <div class="schedule" style="--venue-count:{{ day.venues|length }}">
+        <div class="venue-heads"><div class="time-head">時刻</div>{% for venue in day.venues %}<div class="venue-head">{{ venue.name }}</div>{% endfor %}</div>
+        <div class="lanes">
+          <div class="axis">{% for hour in day.hours %}<span class="axis-label" style="top:{{ hour.top }}px">{{ hour.label }}</span>{% endfor %}</div>
+          {% for venue in day.venues %}
+          <div class="venue-lane" data-venue-id="{{ venue.id|default_if_none:'' }}">
+            {% for block in venue.blocks %}
+            <a class="session-block{% if can_move_sessions %} draggable-session{% endif %}" href="#session-{{ block.session.pk }}" data-session-id="{{ block.session.pk }}" data-start-minute="{{ block.start }}" data-duration="{{ block.duration }}" title="{{ block.session.name }}　{{ block.session.start_time|time:'H:i' }}{% if block.session.end_time %}–{{ block.session.end_time|time:'H:i' }}{% endif %}" style="top:{{ block.top }}px;height:{{ block.height }}px;left:{{ block.left }}%;width:calc({{ block.width }}% - 8px)"><strong>{% if block.session.code %}{{ block.session.code }}　{% endif %}{{ block.session.name }}</strong>{% if block.show_meta %}<small>{{ block.session.start_time|time:'H:i' }}{% if block.session.end_time %}–{{ block.session.end_time|time:'H:i' }}{% else %}　終了未定{% endif %}{% if block.first_number %}　{{ block.first_number }}{% if block.last_number != block.first_number %}–{{ block.last_number }}{% endif %}{% endif %}</small>{% endif %}</a>
+            {% endfor %}
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% else %}<p class="empty">この日のセッションはまだ登録されていません。</p>{% endif %}
+    </section>
+    {% endfor %}
+  </div></div>
+  <div class="details"><h2>セッション・演題一覧</h2>
+    {% for day in days %}{% if day.sessions %}
+    <section class="detail-day"><h2>{{ day.date|date:'n月j日（D）' }}</h2>
+      {% for block in day.sessions %}
+      <details class="session-detail" id="session-{{ block.session.pk }}"><summary>{% if block.session.code %}{{ block.session.code }}　{% endif %}{{ block.session.name }}　{{ block.session.start_time|time:'H:i' }}{% if block.session.end_time %}–{{ block.session.end_time|time:'H:i' }}{% endif %}　{{ block.venue_name }}</summary>
+        {% if block.session.description %}<p>{{ block.session.description }}</p>{% endif %}
+        {% if block.talk_rows %}<table><thead><tr><th>時刻</th><th>番号</th><th>演題・登壇者</th></tr></thead><tbody>{% for row in block.talk_rows %}<tr{% if row.withdrawn %} class="withdrawn-row"{% endif %}><td>{{ row.start }}–{{ row.end }}</td><td>{{ row.talk.program_number|default:'未設定' }}</td><td><span class="talk-title">{{ row.talk.title }}</span>{% if row.withdrawn %}<span class="status-label">発表取り消し</span>{% endif %}<br>{% for author in row.presenters %}{{ author }}{% if author.affiliation %}（{{ author.affiliation }}）{% endif %}{% if not forloop.last %}、{% endif %}{% endfor %}</td></tr>{% endfor %}</tbody></table>{% else %}<p>演題は登録されていません。</p>{% endif %}
+      </details>
+      {% endfor %}
+    </section>
+    {% endif %}{% endfor %}
+  </div>
+  {% if unscheduled %}<section class="unscheduled"><h2>日時未設定のセッション</h2><ul>{% for session in unscheduled %}<li>{% if session.code %}{{ session.code }}　{% endif %}{{ session.name }}（{{ session.date|default:'日付未設定' }}・{{ session.start_time|time:'H:i'|default:'開始時刻未設定' }}）</li>{% endfor %}</ul></section>{% endif %}
+</main>
+<script>
+document.querySelectorAll('.session-block').forEach(block => block.addEventListener('click', () => {
+  const detail = document.querySelector(block.getAttribute('href'));
+  if (detail) detail.open = true;
+}));
+{% if can_move_sessions %}
+const scrollArea = document.getElementById('days-scroll');
+const feedback = document.getElementById('drag-feedback');
+const csrfToken = document.querySelector('#timetable-csrf input[name=csrfmiddlewaretoken]').value;
+const scrollKey = 'timetable-scroll-{{ meeting.abbreviation|escapejs }}';
+try { scrollArea.scrollLeft = Number(sessionStorage.getItem(scrollKey) || 0); } catch (_) {}
+const formatTime = minute => `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`;
+const venueId = lane => lane.dataset.venueId ? Number(lane.dataset.venueId) : null;
+function locateDrop(drag, x, y) {
+  const lane = document.elementsFromPoint(x, y)
+    .map(element => element.closest('.venue-lane')).find(Boolean);
+  if (drag.targetLane !== lane) {
+    drag.targetLane?.classList.remove('drop-target');
+    drag.targetLane = lane || null;
+    drag.targetLane?.classList.add('drop-target');
+  }
+  if (!lane) {
+    drag.target = null;
+    drag.ghost.dataset.previewTime = '移動先を選択';
+    return;
+  }
+  const day = lane.closest('.day');
+  const scale = Number(day.dataset.pixelsPerMinute);
+  const first = Number(day.dataset.firstMinute);
+  const last = first + Math.floor(lane.clientHeight / scale);
+  const atPointer = first + (y - lane.getBoundingClientRect().top - drag.offsetY) / scale;
+  const minute = Math.max(first, Math.min(last - drag.duration, Math.round(atPointer / 5) * 5));
+  drag.target = {date:day.dataset.date, venue:venueId(lane), minute};
+  drag.ghost.dataset.previewTime = `${day.dataset.date} ${formatTime(minute)}`;
+}
+document.querySelectorAll('.draggable-session').forEach(block => {
+  block.draggable = false;
+  let drag = null;
+  let suppressClick = false;
+  block.addEventListener('click', event => {
+    if (!suppressClick) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    suppressClick = false;
+  }, true);
+  const clearDrag = () => {
+    if (drag?.scrollTimer) clearInterval(drag.scrollTimer);
+    if (drag?.targetLane) drag.targetLane.classList.remove('drop-target');
+    drag?.ghost?.remove();
+    block.classList.remove('source-dragging');
+  };
+  block.addEventListener('pointerdown', event => {
+    if (event.button !== 0) return;
+    const rect = block.getBoundingClientRect();
+    const sourceLane = block.closest('.venue-lane');
+    drag = {pointerId:event.pointerId, x:event.clientX, y:event.clientY,
+      offsetX:event.clientX - rect.left, offsetY:event.clientY - rect.top,
+      width:rect.width, height:rect.height, start:Number(block.dataset.startMinute),
+      duration:Number(block.dataset.duration), sourceDate:block.closest('.day').dataset.date,
+      sourceVenue:venueId(sourceLane), moved:false, targetLane:null, ghost:null};
+    block.setPointerCapture(event.pointerId);
+  });
+  block.addEventListener('pointermove', event => {
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    if (!drag.moved && Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < 5) return;
+    if (!drag.moved) {
+      drag.moved = true;
+      drag.ghost = block.cloneNode(true);
+      drag.ghost.classList.add('drag-ghost');
+      drag.ghost.classList.remove('draggable-session');
+      drag.ghost.setAttribute('aria-hidden', 'true');
+      drag.ghost.style.width = `${drag.width}px`;
+      drag.ghost.style.height = `${drag.height}px`;
+      document.body.appendChild(drag.ghost);
+      block.classList.add('source-dragging');
+      drag.scrollTimer = setInterval(() => {
+        if (!drag) return;
+        const bounds = scrollArea.getBoundingClientRect();
+        if (drag.lastY < bounds.top || drag.lastY > bounds.bottom) return;
+        const previous = scrollArea.scrollLeft;
+        if (drag.lastX > bounds.right - 35) scrollArea.scrollLeft += 18;
+        if (drag.lastX < bounds.left + 35) scrollArea.scrollLeft -= 18;
+        if (scrollArea.scrollLeft !== previous) locateDrop(drag, drag.lastX, drag.lastY);
+      }, 30);
+    }
+    event.preventDefault();
+    drag.lastX = event.clientX;
+    drag.lastY = event.clientY;
+    drag.ghost.style.left = `${event.clientX - drag.offsetX}px`;
+    drag.ghost.style.top = `${event.clientY - drag.offsetY}px`;
+    locateDrop(drag, event.clientX, event.clientY);
+  });
+  block.addEventListener('pointercancel', () => { clearDrag(); drag = null; });
+  block.addEventListener('pointerup', async event => {
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    const completed = drag;
+    clearDrag();
+    drag = null;
+    block.releasePointerCapture(event.pointerId);
+    if (!completed.moved) return;
+    suppressClick = true;
+    setTimeout(() => { suppressClick = false; }, 0);
+    if (!completed.target) {
+      feedback.textContent = '移動先の日付・部屋の時間帯にカードを置いてください。';
+      feedback.hidden = false;
+      return;
+    }
+    if (completed.target.date === completed.sourceDate && completed.target.venue === completed.sourceVenue && completed.target.minute === completed.start) return;
+    try {
+      const response = await fetch('{% url 'move_session_time' meeting.abbreviation %}', {
+        method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':csrfToken},
+        body:JSON.stringify({session_id:Number(block.dataset.sessionId),date:completed.target.date,
+          venue_id:completed.target.venue,start_time:formatTime(completed.target.minute),
+          expected_date:completed.sourceDate,expected_venue_id:completed.sourceVenue,
+          expected_start:formatTime(completed.start),expected_duration:completed.duration})
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || '保存できませんでした。');
+      try { sessionStorage.setItem(scrollKey, String(scrollArea.scrollLeft)); } catch (_) {}
+      location.reload();
+    } catch (error) {
+      feedback.textContent = error.message;
+      feedback.hidden = false;
+    }
+  });
+});
+{% endif %}
+</script>
+</body></html>

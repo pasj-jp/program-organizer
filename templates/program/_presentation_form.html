@@ -1,0 +1,17 @@
+<form method="post" action="{% url 'edit_presentation' talk.pk %}" id="presentation-edit-form">
+  {% csrf_token %}
+  <h2 id="presentation-dialog-title">演題を編集</h2>
+  <p class="dialog-submission">{{ talk.submission_number }}</p>
+  {% if form.non_field_errors %}<div class="form-errors">{{ form.non_field_errors }}</div>{% endif %}
+  {% for field in form %}
+  <div class="edit-field">
+    {{ field.label_tag }}
+    {{ field }}
+    {{ field.errors }}
+  </div>
+  {% endfor %}
+  <div class="dialog-actions">
+    <button type="button" class="dialog-cancel">キャンセル</button>
+    <button type="submit">保存</button>
+  </div>
+</form>
