@@ -10,6 +10,7 @@ from django.http import FileResponse, Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_http_methods
 from django.views.decorators.http import require_POST
+from django.views.decorators.cache import never_cache
 from .models import AnnualMeeting, Presentation, Session, SessionChair
 from .forms import AbstractExcelImportForm, BoardPresentationForm, ProgramExcelImportForm, SessionChairsForm, SessionForm
 from .forms import ProceedingsUploadForm
@@ -283,13 +284,35 @@ def move_presentation(request):
     }})
 
 
+@never_cache
 def timetable_index(request):
-    return render(request, 'program/timetable_index.html', {'meetings': AnnualMeeting.objects.all()})
+    return render(request, 'program/timetable_index.html', {
+        'meetings': AnnualMeeting.objects.filter(timetable_published=True)})
 
 
+@never_cache
 def timetable(request, year):
     meeting = get_object_or_404(AnnualMeeting, start_date__year=year)
+    if not meeting.timetable_published:
+        return render(request, 'program/timetable_pending.html', {'meeting': meeting})
     return _render_timetable(request, meeting, editing=False)
+
+
+@login_required
+@require_POST
+def set_timetable_publication(request, year):
+    _require_board_view_permission(request.user)
+    _require_permissions(request.user, 'change_annualmeeting')
+    meeting = get_object_or_404(AnnualMeeting, start_date__year=year)
+    published = request.POST.get('published')
+    if published not in ('true', 'false'):
+        return HttpResponse('公開状態の指定が不正です。', status=400)
+    meeting.timetable_published = published == 'true'
+    meeting.save(update_fields=['timetable_published'])
+    response = redirect('organize', year=year)
+    if request.POST.get('tab') == 'timetable':
+        response['Location'] += '?tab=timetable'
+    return response
 
 
 def _render_timetable(request, meeting, editing):

@@ -19,6 +19,7 @@ urlpatterns = [
     path('organize/<int:year>/export-program/', views.export_program_excel, name='export_program_excel'),
     path('organize/legacy-sessions/', views.organize_legacy, name='organize_legacy'),
     path('organize/<int:year>/', views.organize, name='organize'),
+    path('organize/<int:year>/publication/', views.set_timetable_publication, name='set_timetable_publication'),
     path('organize/<int:year>/session/', views.create_session, name='create_session'),
     path('organize/<int:year>/move-session-time/', views.move_session_time, name='move_session_time'),
     path('timetable/<int:year>/', views.timetable, name='timetable_legacy'),

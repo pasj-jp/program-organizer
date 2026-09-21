@@ -919,8 +919,15 @@ class TimetablePublicationTests(TestCase):
         anonymous = self.client_class()
         self.assertNotContains(anonymous.get(reverse('timetable_index')), '/2026/')
         for route in ['timetable', 'timetable_legacy']:
-            self.assertEqual(anonymous.get(reverse(route, args=[2026])).status_code, 404)
-            self.assertEqual(self.client.get(reverse(route, args=[2026])).status_code, 404)
+            for client in [anonymous, self.client]:
+                pending = client.get(reverse(route, args=[2026]))
+                self.assertContains(pending, 'プログラムが確定するまでお待ちください。')
+                self.assertTemplateUsed(pending, 'program/timetable_pending.html')
+                self.assertNotContains(pending, self.first.title)
+                self.assertNotContains(pending, self.session.name)
+                self.assertNotIn('days', pending.context)
+                self.assertIn('no-store', pending['Cache-Control'])
+        self.assertEqual(anonymous.get(reverse('timetable', args=[2099])).status_code, 404)
         self.assertRedirects(self.client.post(url, {'published': 'true', 'tab': 'timetable'}),
                              reverse('organize', args=[2026]) + '?tab=timetable')
         self.assertContains(anonymous.get(reverse('timetable_index')), '/2026/')

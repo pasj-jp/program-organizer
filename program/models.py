@@ -23,6 +23,7 @@ class AnnualMeeting(models.Model):
     start_date = models.DateField('会期開始日')
     end_date = models.DateField('会期終了日')
     location = models.CharField('会場', max_length=200)
+    timetable_published = models.BooleanField('タイムテーブルを公開', default=False)
 
     class Meta:
         verbose_name = '年会情報'

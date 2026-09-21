@@ -61,11 +61,10 @@
     #drag-feedback{color:#a32929;font-weight:600}
     @media print{header nav,.intro,.page-tabs{display:none}body{background:#fff}main{max-width:none;padding:0}.days-scroll{overflow:visible}.days-row{flex-wrap:wrap;width:auto}.day{break-inside:avoid}.session-block{print-color-adjust:exact;-webkit-print-color-adjust:exact}}
   </style>
-<link rel="stylesheet" href="{% static 'program/publication.css' %}"></head>
+<link rel="stylesheet" href="{% static 'program/publication.css' %}?v=2"></head>
 <body>
-<header><h1>{{ meeting.name }} {% if editing %}編成ページ{% else %}タイムテーブル{% endif %}</h1><nav><a href="{% if editing %}{% url 'organize_index' %}{% else %}{% url 'timetable_index' %}{% endif %}">年会一覧</a>{% if editing %}{% if meeting.timetable_published %}　<a href="{% url 'timetable' meeting.year %}">公開ページ</a>{% endif %}{% if request.user.is_staff %}　<a href="{% url 'admin:index' %}">管理画面</a>{% endif %}{% endif %}</nav></header>
+<header><h1>{{ meeting.name }} {% if editing %}編成ページ{% else %}タイムテーブル{% endif %}</h1><nav><a href="{% if editing %}{% url 'organize_index' %}{% else %}{% url 'timetable_index' %}{% endif %}">年会一覧</a>{% if editing %}{% if meeting.timetable_published %}　<a href="{% url 'timetable' meeting.year %}">公開ページ</a>{% endif %}{% if request.user.is_staff %}　<a href="{% url 'admin:index' %}">管理画面</a>{% endif %}{% endif %}</nav>{% if editing %}{% include 'program/_publication_toggle.html' %}{% endif %}</header>
 <main>
-{% if editing %}{% include 'program/_publication_toggle.html' %}{% endif %}
   {% if editing %}<nav class="page-tabs" aria-label="編成画面"><a href="{% url 'organize' meeting.year %}">セッション編成</a><a href="{% url 'organize' meeting.year %}?tab=timetable" aria-current="page">タイムテーブル</a></nav>{% endif %}
   <p class="intro">{{ meeting.start_date }}〜{{ meeting.end_date }}　{{ meeting.location }}。日付を横に並べています。時間枠を選ぶと下の演題一覧が開きます。{% if can_move_sessions %}カードを別の日・部屋の時間帯へドラッグして移動できます（5分刻み）。{% endif %}</p>
   {% if can_move_sessions %}<form id="timetable-csrf" hidden>{% csrf_token %}</form><p id="drag-feedback" role="status" hidden></p>{% endif %}
