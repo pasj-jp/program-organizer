@@ -5,6 +5,64 @@ from django import forms
 from .models import AnnualMeeting, Presentation, Session, Venue
 
 
+class MultipleFileInput(forms.ClearableFileInput):
+    allow_multiple_selected = True
+
+
+class MultipleFileField(forms.FileField):
+    def clean(self, data, initial=None):
+        values = data if isinstance(data, (list, tuple)) else [data]
+        if not values:
+            values = [None]
+        return [super(MultipleFileField, self).clean(value, initial) for value in values]
+
+
+class ProceedingsUploadForm(forms.Form):
+    file = MultipleFileField(label='プロシーディングスPDF', widget=MultipleFileInput(
+        attrs={'accept': '.pdf,application/pdf', 'aria-describedby': 'selected-files'}))
+
+    def __init__(self, *args, meeting, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.meeting = meeting
+
+    def clean_file(self):
+        uploads = self.cleaned_data['file']
+        self.uploads = []
+        errors = []
+        names = set()
+        for upload in uploads:
+            try:
+                if upload.name in names:
+                    raise forms.ValidationError('同じファイル名が重複しています。')
+                names.add(upload.name)
+                talk = self.validate_upload(upload)
+                self.uploads.append((talk, upload))
+            except forms.ValidationError as exc:
+                errors.extend(f'{upload.name}: {message}' for message in exc.messages)
+        if errors:
+            raise forms.ValidationError(errors)
+        return uploads
+
+    def validate_upload(self, upload):
+        if not upload.name.endswith('.pdf') or not upload.name[:-4]:
+            raise forms.ValidationError('ファイル名はプログラムコード.pdf（例: FRP001.pdf）にしてください。')
+        if upload.size > 50 * 1024 * 1024:
+            raise forms.ValidationError('PDFは50MB以下にしてください。')
+        header = upload.read(8)
+        upload.seek(0)
+        if not header.startswith(b'%PDF-'):
+            raise forms.ValidationError('PDF形式のファイルを選択してください。')
+        presentation = Presentation.objects.filter(
+            annual_meeting=self.meeting, program_number=upload.name[:-4]).first()
+        if presentation is None:
+            raise forms.ValidationError('この年会にファイル名と一致するプログラムコードの演題がありません。')
+        from .models import proceedings_upload_path
+        destination = proceedings_upload_path(presentation, upload.name)
+        if Presentation.objects.filter(proceedings_file=destination).exclude(pk=presentation.pk).exists():
+            raise forms.ValidationError('この保存先には再採番前の別演題のPDFがあります。保存済みPDFの配置を確認してください。')
+        return presentation
+
+
 class MeetingDateSelect(forms.Select):
     def __init__(self, *args, meeting_dates=None, **kwargs):
         self.meeting_dates = meeting_dates or {}

@@ -6,12 +6,13 @@ from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.db.models import Q
-from django.http import HttpResponse, JsonResponse
+from django.http import FileResponse, Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_http_methods
 from django.views.decorators.http import require_POST
 from .models import AnnualMeeting, Presentation, Session, SessionChair
 from .forms import AbstractExcelImportForm, BoardPresentationForm, ProgramExcelImportForm, SessionChairsForm, SessionForm
+from .forms import ProceedingsUploadForm
 from .timetable import build_timetable
 from .program_excel import export_program, import_program
 from .abstract_excel import import_abstracts
@@ -26,6 +27,53 @@ def _require_board_view_permission(user):
 def _require_permissions(user, *permissions):
     if not user.has_perms([f'program.{permission}' for permission in permissions]):
         raise PermissionDenied
+
+
+@login_required
+def procgen_index(request):
+    _require_permissions(request.user, 'view_presentation')
+    return render(request, 'program/procgen_index.html', {'meetings': AnnualMeeting.objects.all()})
+
+
+@login_required
+@require_http_methods(['GET', 'POST'])
+def procgen(request, year):
+    _require_permissions(request.user, 'view_presentation')
+    meeting = get_object_or_404(AnnualMeeting, start_date__year=year)
+    form = ProceedingsUploadForm(request.POST if request.method == 'POST' else None,
+                                 request.FILES or None, meeting=meeting)
+    if request.method == 'POST':
+        _require_permissions(request.user, 'change_presentation')
+        if form.is_valid():
+            for talk, upload in form.uploads:
+                old_name = talk.proceedings_file.name
+                storage = talk.proceedings_file.storage
+                talk.proceedings_file.save(upload.name, upload, save=False)
+                # Updating only this field avoids triggering session renumbering.
+                Presentation.objects.filter(pk=talk.pk).update(proceedings_file=talk.proceedings_file.name)
+                if old_name and old_name != talk.proceedings_file.name:
+                    storage.delete(old_name)
+            messages.success(request, f'{len(form.uploads)}件のPDFをアップロードしました。')
+            return redirect('procgen', year=year)
+    return render(request, 'program/procgen.html', {
+        'meeting': meeting, 'form': form,
+        'presentations': meeting.presentations.prefetch_related('authors').order_by('program_number', 'submission_number'),
+        'can_upload': request.user.has_perm('program.change_presentation'),
+    })
+
+
+@login_required
+def proceedings_pdf(request, year, program_code):
+    _require_permissions(request.user, 'view_presentation')
+    talk = get_object_or_404(Presentation, program_number=program_code, annual_meeting__start_date__year=year)
+    if not talk.proceedings_file:
+        raise Http404
+    try:
+        pdf = talk.proceedings_file.open('rb')
+    except FileNotFoundError:
+        raise Http404
+    return FileResponse(pdf, as_attachment=True, filename=f'{talk.program_number or talk.submission_number}.pdf',
+                        content_type='application/pdf')
 
 
 @login_required

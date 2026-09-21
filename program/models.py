@@ -1,10 +1,18 @@
 from datetime import datetime, timedelta
+from .storage import ProceedingsStorage
 
 from django.core.exceptions import ValidationError
 from django.core.validators import RegexValidator
 from django.db import models, transaction
 from django.db.models import Max
 from django.db.models.functions import ExtractYear
+
+
+def proceedings_upload_path(instance, filename):
+    code = instance.program_number
+    if not code or any(character in code for character in ('/', '\\', '\x00')) or code in {'.', '..'}:
+        raise ValidationError('保存できないプログラムコードです。')
+    return f'{instance.annual_meeting.year}/{code}.pdf'
 
 
 class AnnualMeeting(models.Model):
@@ -207,6 +215,8 @@ class Presentation(models.Model):
     affiliation_text = models.TextField('著者所属情報', blank=True)
     affiliation_text_en = models.TextField('著者所属情報（英語）', blank=True)
     program_number = models.CharField('プログラム番号', max_length=50, null=True, blank=True)
+    proceedings_file = models.FileField('プロシーディングスPDF', upload_to=proceedings_upload_path,
+                                       storage=ProceedingsStorage(), blank=True)
     session = models.ForeignKey(Session, verbose_name='セッション', on_delete=models.SET_NULL, null=True, blank=True, related_name='presentations')
     start_time = models.TimeField('発表開始時刻', null=True, blank=True)
     end_time = models.TimeField('発表終了時刻', null=True, blank=True)

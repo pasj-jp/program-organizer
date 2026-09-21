@@ -1,0 +1,12 @@
+<div class="publication-control">
+<span>タイムテーブル公開</span>
+{% if perms.program.change_annualmeeting %}
+<form method="post" action="{% url 'set_timetable_publication' meeting.year %}">
+{% csrf_token %}
+{% if editing %}<input type="hidden" name="tab" value="timetable">{% endif %}
+<button type="submit" name="published" value="{{ meeting.timetable_published|yesno:'false,true' }}" role="switch" aria-checked="{{ meeting.timetable_published|yesno:'true,false' }}" aria-label="タイムテーブル公開" class="publication-switch"><span aria-hidden="true"></span></button>
+</form>
+{% endif %}
+<strong>{{ meeting.timetable_published|yesno:'公開中,非公開' }}</strong>
+{% if meeting.timetable_published %}<a href="{% url 'timetable' meeting.year %}">公開ページを確認</a>{% else %}<span>編成画面のみで確認できます。</span>{% endif %}
+</div>

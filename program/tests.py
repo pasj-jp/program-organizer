@@ -20,7 +20,7 @@ class OrganizerTests(TestCase):
         self.user.user_permissions.add(*Permission.objects.filter(content_type__app_label='program'))
         self.client.force_login(self.user)
         self.meeting = AnnualMeeting.objects.create(name='年会', abbreviation='PASJ2026',
-            start_date=date(2026, 9, 19), end_date=date(2026, 9, 21), location='東京')
+            start_date=date(2026, 9, 19), end_date=date(2026, 9, 21), location='東京', timetable_published=True)
         self.session = Session.objects.create(name='加速器', code='FRO', annual_meeting=self.meeting,
             start_time=time(10, 0), minutes_per_presentation=20)
         self.first = Presentation.objects.create(annual_meeting=self.meeting, submission_number='A1', title='第一演題')
@@ -760,3 +760,197 @@ class AnnualMeetingTests(TestCase):
         legacy = Session.objects.create(name='古いセッション')
         self.assertContains(self.client.get(reverse('organize_index')), '年会未設定のセッション')
         self.assertContains(self.client.get(reverse('organize_legacy')), legacy.name)
+
+
+class ProceedingsTests(TestCase):
+    def setUp(self):
+        from tempfile import TemporaryDirectory
+        self.media = TemporaryDirectory()
+        self.addCleanup(self.media.cleanup)
+        from django.test import override_settings
+        override = override_settings(PROCEEDINGS_ROOT=self.media.name)
+        override.enable()
+        self.addCleanup(override.disable)
+        self.user = get_user_model().objects.create_user('proceedings-editor')
+        self.user.user_permissions.add(*Permission.objects.filter(
+            content_type__app_label='program', codename__in=['view_presentation', 'change_presentation']))
+        self.client.force_login(self.user)
+        self.meeting = AnnualMeeting.objects.create(name='年会2027', abbreviation='P2027',
+            start_date=date(2027, 9, 1), end_date=date(2027, 9, 3))
+        self.other = AnnualMeeting.objects.create(name='年会2028', abbreviation='P2028',
+            start_date=date(2028, 9, 1), end_date=date(2028, 9, 3))
+        self.talk = Presentation.objects.create(annual_meeting=self.meeting, submission_number='1',
+            program_number='FRP001', title='対象演題')
+        self.other_talk = Presentation.objects.create(annual_meeting=self.other, submission_number='1',
+            program_number='FRP001', title='別年会の演題')
+        self.talk.authors.create(position=1, is_presenter=True, family_name='講演', given_name='太郎')
+        self.url = reverse('procgen', args=[2027])
+
+    def upload(self, name='FRP001.pdf', content=b'%PDF-1.4\n%%EOF\n'):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        return self.client.post(self.url, {'file': SimpleUploadedFile(name, content, content_type='application/pdf')})
+
+    def test_index_list_and_year_isolation(self):
+        self.assertContains(self.client.get(reverse('procgen_index')), self.url)
+        response = self.client.get(self.url)
+        for value in ['対象演題', 'FRP001', '講演 太郎', '未アップロード']:
+            self.assertContains(response, value)
+        self.assertNotContains(response, '別年会の演題')
+        self.assertEqual(self.client.get(reverse('procgen', args=[2029])).status_code, 404)
+
+    def test_upload_replace_download_and_renumber(self):
+        self.assertRedirects(self.upload(), self.url)
+        self.talk.refresh_from_db()
+        first_name = self.talk.proceedings_file.name
+        self.other_talk.refresh_from_db()
+        self.assertFalse(self.other_talk.proceedings_file)
+        self.assertContains(self.client.get(self.url), 'dot uploaded')
+        replacement = b'%PDF-1.7\n%replacement\n%%EOF\n'
+        self.assertRedirects(self.upload(content=replacement), self.url)
+        self.talk.refresh_from_db()
+        self.assertEqual(first_name, '2027/FRP001.pdf')
+        self.assertEqual(self.talk.proceedings_file.name, first_name)
+        self.assertEqual(self.talk.proceedings_file.path, self.media.name + '/2027/FRP001.pdf')
+        Presentation.objects.filter(pk=self.talk.pk).update(program_number='FRP002', status='withdrawn')
+        response = self.client.get(reverse('proceedings_pdf', args=[2027, 'FRP002']))
+        self.assertEqual(b''.join(response.streaming_content), replacement)
+        self.assertIn('FRP002.pdf', response['Content-Disposition'])
+        self.assertContains(self.client.get(self.url), '発表取り消し')
+        self.assertContains(self.client.get(self.url), 'dot uploaded')
+        self.assertEqual(self.client.get(reverse('proceedings_pdf', args=[2028, 'FRP002'])).status_code, 404)
+
+    def test_invalid_uploads_leave_existing_file_unchanged(self):
+        self.upload()
+        self.talk.refresh_from_db()
+        original = self.talk.proceedings_file.name
+        for name, content in [('FRP001.txt', b'%PDF-1.4'), ('FRP001.pdf', b'not a PDF'),
+                              ('UNKNOWN.pdf', b'%PDF-1.4'), ('FRP001.PDF', b'%PDF-1.4')]:
+            with self.subTest(name=name, content=content):
+                response = self.upload(name, content)
+                self.assertTrue(response.context['form'].errors)
+                self.talk.refresh_from_db()
+                self.assertEqual(self.talk.proceedings_file.name, original)
+        self.assertTrue(self.client.post(self.url).context['form'].errors)
+
+    def test_permissions_and_csrf(self):
+        from django.test import Client
+        csrf_client = Client(enforce_csrf_checks=True)
+        csrf_client.force_login(self.user)
+        self.assertEqual(csrf_client.post(self.url).status_code, 403)
+        self.user.user_permissions.clear()
+        self.assertEqual(self.client.get(self.url).status_code, 403)
+        self.assertEqual(self.client.get(reverse('procgen_index')).status_code, 403)
+        self.user.user_permissions.add(Permission.objects.get(
+            content_type__app_label='program', codename='view_presentation'))
+        self.assertEqual(self.client.get(self.url).status_code, 200)
+        self.assertNotContains(self.client.get(self.url), '<form')
+        self.assertEqual(self.upload().status_code, 403)
+        self.client.logout()
+        self.assertEqual(self.client.get(self.url).status_code, 302)
+        self.assertEqual(self.upload().status_code, 302)
+        self.assertEqual(self.client.get(reverse('proceedings_pdf', args=[2027, 'FRP002'])).status_code, 302)
+
+    def test_renumbered_file_collision_is_rejected(self):
+        self.upload()
+        Presentation.objects.filter(pk=self.talk.pk).update(program_number='FRP002')
+        Presentation.objects.create(annual_meeting=self.meeting, submission_number='2',
+                                    program_number='FRP001', title='新しい演題')
+        response = self.upload()
+        self.assertTrue(response.context['form'].errors)
+        self.assertContains(response, '再採番前の別演題')
+
+    def test_legacy_file_is_replaced_with_code_path(self):
+        from django.core.files.base import ContentFile
+        storage = self.talk.proceedings_file.storage
+        legacy_name = storage.save('proceedings/1/273/legacy.pdf', ContentFile(b'%PDF-1.4\n%%EOF'))
+        Presentation.objects.filter(pk=self.talk.pk).update(proceedings_file=legacy_name)
+        self.assertRedirects(self.upload(), self.url)
+        self.talk.refresh_from_db()
+        self.assertEqual(self.talk.proceedings_file.name, '2027/FRP001.pdf')
+        self.assertFalse(storage.exists(legacy_name))
+
+    def test_multiple_pdfs_are_saved_to_matching_presentations(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        second = Presentation.objects.create(annual_meeting=self.meeting, submission_number='2',
+                                             program_number='FRP002', title='第二演題')
+        response = self.client.post(self.url, {'file': [
+            SimpleUploadedFile('FRP001.pdf', b'%PDF-1.4\nfirst'),
+            SimpleUploadedFile('FRP002.pdf', b'%PDF-1.4\nsecond'),
+        ]})
+        self.assertRedirects(response, self.url)
+        for talk, expected in [(self.talk, b'%PDF-1.4\nfirst'), (second, b'%PDF-1.4\nsecond')]:
+            talk.refresh_from_db()
+            with talk.proceedings_file.open('rb') as pdf:
+                self.assertEqual(pdf.read(), expected)
+        self.other_talk.refresh_from_db()
+        self.assertFalse(self.other_talk.proceedings_file)
+        self.assertContains(self.client.get(self.url), 'multiple')
+        self.assertContains(self.client.get(self.url), 'pdf-drop-zone')
+
+    def test_invalid_batch_does_not_replace_existing_pdf(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        self.upload(content=b'%PDF-1.4\noriginal')
+        for invalid_name, invalid_content in [('UNKNOWN.pdf', b'%PDF-1.4'),
+                                               ('FRP002.pdf', b'not PDF'),
+                                               ('FRP001.pdf', b'%PDF-1.4\nduplicate')]:
+            with self.subTest(name=invalid_name):
+                response = self.client.post(self.url, {'file': [
+                    SimpleUploadedFile('FRP001.pdf', b'%PDF-1.4\nreplacement'),
+                    SimpleUploadedFile(invalid_name, invalid_content),
+                ]})
+                self.assertTrue(response.context['form'].errors)
+                self.assertContains(response, invalid_name)
+                self.talk.refresh_from_db()
+                with self.talk.proceedings_file.open('rb') as pdf:
+                    self.assertEqual(pdf.read(), b'%PDF-1.4\noriginal')
+
+
+class TimetablePublicationTests(TestCase):
+    setUp = OrganizerTests.setUp
+
+    def test_toggle_controls_public_routes_and_preserves_editor_access(self):
+        url = reverse('set_timetable_publication', args=[2026])
+        response = self.client.post(url, {'published': 'false'})
+        self.assertRedirects(response, reverse('organize', args=[2026]))
+        self.meeting.refresh_from_db()
+        self.assertFalse(self.meeting.timetable_published)
+        self.assertContains(self.client.get(reverse('organize', args=[2026])), 'aria-checked="false"')
+        self.assertContains(self.client.get(reverse('organize', args=[2026]) + '?tab=timetable'), 'aria-checked="false"')
+        anonymous = self.client_class()
+        self.assertNotContains(anonymous.get(reverse('timetable_index')), '/2026/')
+        for route in ['timetable', 'timetable_legacy']:
+            self.assertEqual(anonymous.get(reverse(route, args=[2026])).status_code, 404)
+            self.assertEqual(self.client.get(reverse(route, args=[2026])).status_code, 404)
+        self.assertRedirects(self.client.post(url, {'published': 'true', 'tab': 'timetable'}),
+                             reverse('organize', args=[2026]) + '?tab=timetable')
+        self.assertContains(anonymous.get(reverse('timetable_index')), '/2026/')
+        response = anonymous.get(reverse('timetable', args=[2026]))
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('no-store', response['Cache-Control'])
+        self.assertNotContains(response, 'role="switch"')
+
+    def test_permissions_input_validation_and_csrf(self):
+        from django.test import Client
+        url = reverse('set_timetable_publication', args=[2026])
+        self.assertEqual(self.client.get(url).status_code, 405)
+        self.assertEqual(self.client.post(url, {'published': 'invalid'}).status_code, 400)
+        csrf_client = Client(enforce_csrf_checks=True)
+        csrf_client.force_login(self.user)
+        self.assertEqual(csrf_client.post(url, {'published': 'false'}).status_code, 403)
+        self.user.user_permissions.remove(Permission.objects.get(
+            content_type__app_label='program', codename='change_annualmeeting'))
+        self.assertNotContains(self.client.get(reverse('organize', args=[2026])), 'role="switch"')
+        self.assertEqual(self.client.post(url, {'published': 'false'}).status_code, 403)
+        self.client.logout()
+        self.assertEqual(self.client.post(url, {'published': 'false'}).status_code, 302)
+        self.meeting.refresh_from_db()
+        self.assertTrue(self.meeting.timetable_published)
+
+    def test_new_meetings_are_private_and_toggle_is_scoped(self):
+        other = AnnualMeeting.objects.create(name='新規年会', abbreviation='NEW',
+            start_date=date(2027, 9, 1), end_date=date(2027, 9, 3))
+        self.assertFalse(other.timetable_published)
+        self.client.post(reverse('set_timetable_publication', args=[2027]), {'published': 'true'})
+        self.client.post(reverse('set_timetable_publication', args=[2026]), {'published': 'false'})
+        other.refresh_from_db()
+        self.assertTrue(other.timetable_published)

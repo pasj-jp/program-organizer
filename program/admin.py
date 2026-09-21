@@ -133,7 +133,7 @@ class RoomInline(admin.TabularInline):
 
 @admin.register(AnnualMeeting)
 class AnnualMeetingAdmin(admin.ModelAdmin):
-    list_display = ('name', 'meeting_year', 'abbreviation', 'start_date', 'end_date', 'location')
+    list_display = ('name', 'meeting_year', 'abbreviation', 'start_date', 'end_date', 'location', 'timetable_published')
     search_fields = ('name', 'abbreviation', 'location')
     inlines = [RoomInline]
 
