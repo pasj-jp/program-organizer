@@ -31,8 +31,12 @@ BASE_HEADERS = (
 )
 AUTHOR_COLUMNS = ('区分', '姓', '名', '姓カナ', '名カナ', '姓英語', '名英語',
                   'ミドルネーム', '所属', '所属 (英語)')
+MAX_AUTHORS = 52
+AUTHOR_START_COLUMN = len(BASE_HEADERS) + 1
+AUTHOR_FIELDS = ('family_name', 'given_name', 'family_name_kana', 'given_name_kana',
+                 'family_name_en', 'given_name_en', 'middle_name', 'affiliation', 'affiliation_en')
 HEADERS = BASE_HEADERS + tuple(f'連名者[{position}]{column}'
-    for position in range(1, 53) for column in AUTHOR_COLUMNS)
+    for position in range(1, MAX_AUTHORS + 1) for column in AUTHOR_COLUMNS)
 REQUIRED_COLUMNS = {3, 5, 6, 9, 10, 11, 12, 34}
 POSTER_MARKS = '①②③④⑤⑥⑦⑧⑨⑩'
 
@@ -40,6 +44,30 @@ POSTER_MARKS = '①②③④⑤⑥⑦⑧⑨⑩'
 def cell(row, number):
     value = row[number - 1] if number <= len(row) else None
     return str(value).strip() if value is not None else ''
+
+
+def author_column(position):
+    """Return the one-based column of an author's presenter marker."""
+    return AUTHOR_START_COLUMN + (position - 1) * len(AUTHOR_COLUMNS)
+
+
+def authors_from_row(row, talk):
+    authors = []
+    for position in range(1, MAX_AUTHORS + 1):
+        column = author_column(position)
+        if not (cell(row, column + 1) or cell(row, column + 2)):
+            continue
+        fields = {name: cell(row, column + index) for index, name in enumerate(AUTHOR_FIELDS, start=1)}
+        authors.append(Author(presentation=talk, position=position,
+                              is_presenter='登壇者' in cell(row, column), **fields))
+    return authors
+
+
+def author_export_values(author):
+    column = author_column(author.position)
+    values = ('登壇者' if author.is_presenter else '連名者',
+              *(getattr(author, field) for field in AUTHOR_FIELDS))
+    return {column + index: value for index, value in enumerate(values)}
 
 
 def parse_day(value, meeting, row_number):
@@ -250,19 +278,7 @@ def import_program(file, meeting):
             else:
                 updated += 1
             if not talk.authors.exists():
-                authors = []
-                for author_position in range(1, 53):
-                    offset = 53 + (author_position - 1) * 10
-                    if not (cell(row, offset + 2) or cell(row, offset + 3)):
-                        continue
-                    authors.append(Author(presentation=talk, position=author_position,
-                        is_presenter='登壇者' in cell(row, offset + 1),
-                        family_name=cell(row, offset + 2), given_name=cell(row, offset + 3),
-                        family_name_kana=cell(row, offset + 4), given_name_kana=cell(row, offset + 5),
-                        family_name_en=cell(row, offset + 6), given_name_en=cell(row, offset + 7),
-                        middle_name=cell(row, offset + 8), affiliation=cell(row, offset + 9),
-                        affiliation_en=cell(row, offset + 10)))
-                Author.objects.bulk_create(authors)
+                Author.objects.bulk_create(authors_from_row(row, talk))
             category = chosen_category(talk, cell(row, 7))
             Presentation.objects.filter(pk=talk.pk).update(
                 session=session, session_order=position, confirmed_category=category,
@@ -330,14 +346,9 @@ def export_program(meeting):
                     20: presenter.family_name_en, 21: presenter.given_name_en,
                     22: presenter.middle_name, 23: presenter.affiliation})
             for author in authors:
-                if author.position > 52:
+                if author.position > MAX_AUTHORS:
                     continue
-                offset = 53 + (author.position - 1) * 10
-                author_values = ('登壇者' if author.is_presenter else '連名者',
-                    author.family_name, author.given_name, author.family_name_kana,
-                    author.given_name_kana, author.family_name_en, author.given_name_en,
-                    author.middle_name, author.affiliation, author.affiliation_en)
-                values.update({offset + index: value for index, value in enumerate(author_values, start=1)})
+                values.update(author_export_values(author))
             for column, value in values.items():
                 row[column - 1] = value
             sheet.append(row)

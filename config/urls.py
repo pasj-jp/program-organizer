@@ -18,7 +18,6 @@ urlpatterns = [
     path('organize/<int:year>/', views.organize, name='organize'),
     path('organize/<int:year>/session/', views.create_session, name='create_session'),
     path('organize/<int:year>/move-session-time/', views.move_session_time, name='move_session_time'),
-    path('timetable/<int:year>/excel/', views.timetable_excel, name='timetable_excel'),
     path('timetable/<int:year>/', views.timetable, name='timetable_legacy'),
     path('<int:year>/', views.timetable, name='timetable'),
     path('', views.timetable_index, name='timetable_index'),

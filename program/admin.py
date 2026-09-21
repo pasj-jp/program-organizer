@@ -4,7 +4,7 @@ from django.shortcuts import render, redirect
 from django import forms
 from .models import AnnualMeeting, Author, Presentation, Session, SessionChair, Venue
 from .forms import PresentationForm, SessionForm
-from .importer import import_abstracts
+from .abstract_excel import import_abstracts
 
 
 class ImportForm(forms.Form):

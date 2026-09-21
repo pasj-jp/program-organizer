@@ -1,6 +1,10 @@
+"""Import presentation and author data from abstract.xlsx."""
+
 import re
+
 from django.db import transaction
 from openpyxl import load_workbook
+
 from .models import Author, Presentation
 
 REQUIRED = ('演題登録番号', '題目', '発表形式', '連名者[1]区分')

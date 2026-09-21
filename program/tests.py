@@ -331,21 +331,7 @@ class OrganizerTests(TestCase):
         self.assertContains(response, 'class="day" data-date=', count=3)
         self.assertContains(response, 'data-date="2026-09-20"')
         self.assertNotContains(response, 'role="tab"')
-        self.assertContains(response, reverse('timetable_excel', args=[2026]))
         self.assertContains(self.client.get(reverse('timetable_index')), '/2026/')
-
-        excel = self.client.get(reverse('timetable_excel', args=[2026]))
-        self.assertEqual(excel.status_code, 200)
-        self.assertEqual(excel['Content-Type'], 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-        self.assertIn('timetable_PASJ2026.xlsx', excel['Content-Disposition'])
-        workbook = load_workbook(BytesIO(excel.content), read_only=False)
-        self.assertIn('日程1-3', workbook.sheetnames)
-        self.assertIn('演題一覧', workbook.sheetnames)
-        schedule_values = [cell.value for row in workbook['日程1-3'] for cell in row]
-        self.assertIn('9月19日（土）', schedule_values)
-        self.assertTrue(any(isinstance(value, str) and 'FRO01–FRO02' in value for value in schedule_values))
-        talk_values = [cell.value for row in workbook['演題一覧'] for cell in row]
-        self.assertIn('第一演題', talk_values)
 
     def test_withdrawn_talk_keeps_its_timetable_slot(self):
         self.move(self.first, self.session.pk, [self.first.pk])
@@ -365,26 +351,12 @@ class OrganizerTests(TestCase):
         self.assertContains(response, 'FRO01')
         self.session.refresh_from_db()
         self.assertEqual(self.session.end_time, time(10, 20))
-        workbook = load_workbook(BytesIO(self.client.get(reverse('timetable_excel', args=[2026])).content))
-        rows = list(workbook['演題一覧'].values)
-        self.assertTrue(any(row[1] == '10:00–10:20' and row[6] == '第一演題' for row in rows))
         moved = self.client.post(reverse('move_session_time', args=[2026]),
             json.dumps({'session_id': self.session.pk, 'start_time': '11:00',
                         'expected_start': '10:00', 'expected_duration': 20}),
             content_type='application/json')
         self.assertEqual(moved.status_code, 200)
         self.assertEqual(moved.json()['end_time'], '11:20')
-
-    def test_excel_export_keeps_imported_titles_as_text(self):
-        self.session.date = date(2026, 9, 19)
-        self.session.save(update_fields=['date'])
-        self.first.title = '=1+1'
-        self.first.save(update_fields=['title'])
-        self.move(self.first, self.session.pk, [self.first.pk])
-        response = self.client.get(reverse('timetable_excel', args=[2026]))
-        workbook = load_workbook(BytesIO(response.content))
-        title_cell = next(cell for row in workbook['演題一覧'] for cell in row if cell.value == '=1+1')
-        self.assertEqual(title_cell.data_type, 's')
 
     def test_empty_session_duration_supports_breaks(self):
         break_session = Session.objects.create(
@@ -629,9 +601,6 @@ class OrganizerTests(TestCase):
                 if row['talk'].pk == self.first.pk]
         self.assertEqual([(row['start'], row['end']) for row in rows],
                          [('10:00', '11:00'), ('13:00', '14:30')])
-        workbook = load_workbook(BytesIO(self.client.get(reverse('timetable_excel', args=[2026])).content))
-        exported = [row for row in workbook['演題一覧'].values if row[6] == '第一演題']
-        self.assertEqual([row[1] for row in exported], ['10:00–11:00', '13:00–14:30'])
         self.assertEqual(report.end_time, None)
         poster_one.refresh_from_db()
         poster_two.refresh_from_db()
