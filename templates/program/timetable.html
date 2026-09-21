@@ -45,9 +45,14 @@
     .session-detail{border-bottom:1px solid #e0e6eb;scroll-margin-top:1rem}
     .session-detail summary{cursor:pointer;padding:.55rem .2rem;font-weight:600}
     .session-detail p{margin:.25rem 0 .7rem;color:#526070;font-size:.9rem}
-    .session-detail table{width:100%;border-collapse:collapse}
+    .session-detail table{width:100%;border-collapse:collapse;table-layout:fixed}
     .session-detail th,.session-detail td{text-align:left;border-bottom:1px solid #e0e6eb;padding:.45rem .5rem;vertical-align:top}
+    .session-detail th:nth-child(1){width:7.5em}.session-detail th:nth-child(2){width:6em}
     .session-detail th{background:#f4f6f8}.talk-title{font-weight:600}
+    .abstract-toggle{font:inherit;font-weight:700;color:#185979;background:none;border:0;padding:0;text-align:left;cursor:pointer;text-decoration:underline;text-underline-offset:.15em}
+    .abstract-toggle:hover{color:#103e55}.abstract-toggle:focus-visible{outline:2px solid #2773a4;outline-offset:3px}
+    .talk-abstract{margin-top:.65rem;padding:.75rem;background:#f4f6f8;border-left:3px solid #7ca5c4;overflow-wrap:anywhere}
+    .abstract-body{white-space:pre-wrap}
     .withdrawn-row{color:#8a959f}
     .withdrawn-row .talk-title{text-decoration:line-through}
     .withdrawn-row .status-label{display:inline-block;margin-left:.4rem;color:#8a5960;font-size:.78rem}
@@ -91,7 +96,7 @@
       <details class="session-detail" id="session-{{ block.session.pk }}"><summary>{% if block.session.code %}{{ block.session.code }}　{% endif %}{{ block.session.name }}　{{ block.session.start_time|time:'H:i' }}{% if block.session.end_time %}–{{ block.session.end_time|time:'H:i' }}{% endif %}　{{ block.venue_name }}</summary>
         {% if block.session.description %}<p>{{ block.session.description }}</p>{% endif %}
         {% for chair in block.session.chairs.all %}<p>座長（{{ chair.category }}）: {{ chair.name }}</p>{% endfor %}
-        {% if block.talk_rows %}<table><thead><tr><th>時刻</th><th>番号</th><th>演題・登壇者</th></tr></thead><tbody>{% for row in block.talk_rows %}<tr{% if row.withdrawn %} class="withdrawn-row"{% endif %}><td>{{ row.start }}–{{ row.end }}</td><td>{{ row.talk.program_number|default:'未設定' }}</td><td><span class="talk-title">{{ row.talk.title }}</span>{% if row.withdrawn %}<span class="status-label">発表取り消し</span>{% endif %}<br>{% for author in row.presenters %}{{ author }}{% if author.affiliation %}（{{ author.affiliation }}）{% endif %}{% if not forloop.last %}、{% endif %}{% endfor %}</td></tr>{% endfor %}</tbody></table>{% else %}<p>演題は登録されていません。</p>{% endif %}
+        {% if block.talk_rows %}<table><thead><tr><th>時刻</th><th>番号</th><th>演題・登壇者</th></tr></thead><tbody>{% for row in block.talk_rows %}<tr{% if row.withdrawn %} class="withdrawn-row"{% endif %}><td>{{ row.start }}–{{ row.end }}</td><td>{{ row.talk.program_number|default:'未設定' }}</td><td><button type="button" class="talk-title abstract-toggle" aria-expanded="false" aria-controls="abstract-{{ block.session.pk }}-{{ row.talk.pk }}">{{ row.talk.title }}</button>{% if row.withdrawn %}<span class="status-label">発表取り消し</span>{% endif %}<br>{% for author in row.presenters %}{{ author }}{% if author.affiliation %}（{{ author.affiliation }}）{% endif %}{% if not forloop.last %}、{% endif %}{% endfor %}<div class="talk-abstract" id="abstract-{{ block.session.pk }}-{{ row.talk.pk }}" hidden><strong>要旨：</strong><div class="abstract-body">{{ row.talk.abstract|default:'要旨は登録されていません。' }}</div></div></td></tr>{% endfor %}</tbody></table>{% else %}<p>演題は登録されていません。</p>{% endif %}
       </details>
       {% endfor %}
     </section>
@@ -100,6 +105,11 @@
   {% if unscheduled %}<section class="unscheduled"><h2>日時未設定のセッション</h2><ul>{% for session in unscheduled %}<li>{% if session.code %}{{ session.code }}　{% endif %}{{ session.name }}（{{ session.date|default:'日付未設定' }}・{{ session.start_time|time:'H:i'|default:'開始時刻未設定' }}）</li>{% endfor %}</ul></section>{% endif %}
 </main>
 <script>
+document.querySelectorAll('.abstract-toggle').forEach(button => button.addEventListener('click', () => {
+  const abstract = document.getElementById(button.getAttribute('aria-controls'));
+  abstract.hidden = !abstract.hidden;
+  button.setAttribute('aria-expanded', String(!abstract.hidden));
+}));
 document.querySelectorAll('.session-block').forEach(block => block.addEventListener('click', () => {
   const detail = document.querySelector(block.getAttribute('href'));
   if (detail) detail.open = true;
