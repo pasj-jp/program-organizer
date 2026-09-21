@@ -200,6 +200,7 @@ class Presentation(models.Model):
     presentation_format = models.CharField('発表形式', max_length=200, blank=True)
     category_first = models.CharField('第1希望カテゴリー', max_length=200, blank=True)
     category_second = models.CharField('第2希望カテゴリー', max_length=200, blank=True)
+    applies_for_annual_award = models.BooleanField('年会賞に応募', default=False)
     confirmed_category = models.CharField('カテゴリー', max_length=200, blank=True)
     author_text = models.TextField('著者情報', blank=True)
     author_text_en = models.TextField('著者情報（英語）', blank=True)

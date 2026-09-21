@@ -57,6 +57,8 @@ main{padding:1rem 1.5rem}
 .assigned-category{overflow-wrap:anywhere}
 .assigned-category[hidden],.category-details[hidden]{display:none}
 .meta{font-size:.77rem;color:#536476;margin-top:.35rem}
+.annual-award-icon{display:inline-block;width:1rem;height:1rem;margin-left:.35rem;vertical-align:middle;color:#946200}
+.annual-award-icon svg{display:block;width:100%;height:100%;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .edit-presentation{position:absolute;right:.45rem;bottom:.45rem;width:1.9rem;height:1.9rem;border:1px solid var(--line);border-radius:7px;background:#fff;color:var(--accent-dark);display:grid;place-items:center}
 .edit-presentation:hover{background:var(--accent-soft);border-color:#8bbdd3}
 .edit-presentation svg{width:1rem;height:1rem;fill:currentColor}
@@ -72,6 +74,11 @@ main{padding:1rem 1.5rem}
 .edit-field textarea{min-height:4rem;resize:vertical;line-height:1.5}
 .edit-field input:hover,.edit-field textarea:hover,.edit-field select:hover,.action-dialog form>p:not(.hint) input:hover,.format-filter select:hover{border-color:#84acc1}
 .edit-field input:focus,.edit-field textarea:focus,.edit-field select:focus,.action-dialog form>p:not(.hint) input:focus,.format-filter select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px #24749d29}
+.edit-field .award-option{display:flex;align-items:center;gap:.65rem;min-height:2.8rem;padding:.7rem .85rem;border:1px solid var(--line);border-radius:9px;background:#f8fafc;cursor:pointer}
+.edit-field .award-option:hover{border-color:#84acc1}
+.edit-field .award-option:has(input:checked){border-color:#a7c6d5;background:var(--accent-soft);color:var(--accent-dark)}
+.edit-field .award-option input[type=checkbox]{flex:0 0 auto;width:1.15rem;height:1.15rem;min-height:0;margin:0;padding:0;accent-color:var(--accent);box-shadow:none;cursor:pointer}
+.edit-field .award-option input[type=checkbox]:focus-visible{outline:3px solid #85c4df;outline-offset:3px}
 .action-dialog input[type=file]{max-width:100%;height:auto;padding:.45rem}
 .action-dialog input[type=file]::file-selector-button{border:1px solid #a7c6d5;border-radius:7px;background:var(--accent-soft);color:var(--accent-dark);font-weight:700;padding:.45rem .7rem;margin-right:.8rem;cursor:pointer}
 .action-dialog input[type=file]::file-selector-button:hover{background:#d3ecf6}

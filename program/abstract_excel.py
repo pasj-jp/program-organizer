@@ -7,7 +7,7 @@ from openpyxl import load_workbook
 
 from .models import Author, Presentation
 
-REQUIRED = ('演題登録番号', '題目', '発表形式', '連名者[1]区分')
+REQUIRED = ('演題登録番号', '題目', '発表形式', '年会賞への応募応募', '連名者[1]区分')
 SOURCE_FIELDS = {
     'registration_number': '参加登録番号', 'login_id': 'ログインID',
     'email': 'メールアドレス', 'title': '題目', 'title_en': '題目（english）',
@@ -23,11 +23,16 @@ AUTHOR_FIELDS = {
     'given_name_en': '名英語', 'middle_name': 'ミドルネーム',
     'affiliation': '所属', 'affiliation_en': '所属 (英語)',
 }
+ANNUAL_AWARD_HEADER = '年会賞への応募応募'
 
 
 def value(row, key):
     v = row.get(key)
     return str(v).strip() if v is not None else ''
+
+
+def applies_for_annual_award(row):
+    return value(row, ANNUAL_AWARD_HEADER).startswith('エントリーする')
 
 
 @transaction.atomic
@@ -55,6 +60,7 @@ def import_abstracts(file, meeting):
                 raise ValueError(f'{index} 行目: 演題登録番号 {number} が重複しています。')
             seen.add(number)
             defaults = {field: value(row, heading) for field, heading in SOURCE_FIELDS.items()}
+            defaults['applies_for_annual_award'] = applies_for_annual_award(row)
             if not defaults['title']:
                 raise ValueError(f'{index} 行目: 題目がありません。')
             presentation, is_new = Presentation.objects.update_or_create(

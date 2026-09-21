@@ -47,8 +47,8 @@ class OrganizerTests(TestCase):
             start_date=date(2027, 9, 19), end_date=date(2027, 9, 21), location='大阪')
         book = Workbook()
         sheet = book.active
-        sheet.append(['演題登録番号', '題目', '発表形式', '連名者[1]区分'])
-        sheet.append(['A1', '翌年の演題', '口頭発表', ''])
+        sheet.append(['演題登録番号', '題目', '発表形式', '年会賞への応募応募', '連名者[1]区分'])
+        sheet.append(['A1', '翌年の演題', '口頭発表', 'エントリーしない [Not entry]', ''])
         output = BytesIO()
         book.save(output)
         output.seek(0)
@@ -102,15 +102,16 @@ class OrganizerTests(TestCase):
         book = Workbook()
         sheet = book.active
         sheet.append(HEADERS)
-        def add(number, session_name, format_name, category, program_number, day, slot, room, chair=''):
+        def add(number, session_name, format_name, category, program_number, day, slot, room, chair='', award=False):
             row = [None] * len(HEADERS)
             for column, value in {3: number, 5: format_name, 6: session_name, 7: category,
                                   9: program_number, 10: day, 11: slot, 12: room,
-                                  13: chair, 34: f'{number}の題目', 37: category}.items():
+                                  13: chair, 34: f'{number}の題目', 37: category,
+                                  39: 'エントリーする [Entry]' if award else 'エントリーしない [Not entry]'}.items():
                 row[column - 1] = value
             sheet.append(row)
         add('A1', '口頭発表①', '口頭発表 [Oral]', '加速器', 'FRO01', date(2026, 9, 19),
-            '10:00-10:40', 'A会場', '山田')
+            '10:00-10:40', 'A会場', '山田', award=True)
         add('A2', '口頭発表①', '口頭発表 [Oral]', 'ビーム', 'FRO02', date(2026, 9, 19),
             '10:00-10:40', 'A会場', '佐藤')
         add('P1', 'ポスターセッション①', 'ポスター発表 [Poster]', '加速器', 'P001',
@@ -126,6 +127,8 @@ class OrganizerTests(TestCase):
         response = self.client.post(reverse('import_program_excel', args=[self.meeting.year]), {'file': output})
         self.assertEqual(response.status_code, 302)
         self.assertEqual(Presentation.objects.filter(session__annual_meeting=self.meeting).count(), 5)
+        self.assertTrue(Presentation.objects.get(annual_meeting=self.meeting,
+                                                 submission_number='A1').applies_for_annual_award)
         self.assertEqual(Session.objects.filter(annual_meeting=self.meeting, kind=Session.Kind.ORAL).count(), 1)
         oral = Session.objects.get(annual_meeting=self.meeting, kind=Session.Kind.ORAL)
         self.assertEqual(dict(oral.chairs.values_list('category', 'name')), {'加速器': '山田', 'ビーム': '佐藤'})
@@ -137,6 +140,7 @@ class OrganizerTests(TestCase):
         rows = list(load_workbook(BytesIO(exported.content), read_only=True, data_only=True).active.values)
         self.assertEqual(len(rows[0]), len(HEADERS))
         self.assertEqual(len(rows), 6)
+        self.assertEqual(rows[1][38], 'エントリーする [Entry]')
         self.assertEqual(len(read_program(BytesIO(exported.content), self.meeting)), 4)
         reordered = Workbook()
         order = list(range(len(HEADERS)))
@@ -154,16 +158,22 @@ class OrganizerTests(TestCase):
         self.assertContains(board, 'aria-label="abstract.xlsx をインポート"')
         book = Workbook()
         sheet = book.active
-        sheet.append(['演題登録番号', '題目', '発表形式', '連名者[1]区分', '連名者[1]姓', '連名者[1]名'])
-        sheet.append(['A3', '追加演題', '口頭発表 [Oral]', '登壇者', '山田', '太郎'])
+        sheet.append(['演題登録番号', '題目', '発表形式', '年会賞への応募応募',
+                      '連名者[1]区分', '連名者[1]姓', '連名者[1]名'])
+        sheet.append(['A3', '追加演題', '口頭発表 [Oral]', 'エントリーする [Entry]',
+                      '登壇者', '山田', '太郎'])
         output = BytesIO()
         book.save(output)
         output.seek(0)
         output.name = 'abstract.xlsx'
         response = self.client.post(reverse('import_abstract_excel', args=[self.meeting.year]), {'file': output})
         self.assertEqual(response.status_code, 302)
-        self.assertIsNone(Presentation.objects.get(submission_number='A3').session_id)
-        self.assertContains(self.client.get(reverse('organize', args=[self.meeting.year])), '追加演題')
+        imported = Presentation.objects.get(submission_number='A3')
+        self.assertIsNone(imported.session_id)
+        self.assertTrue(imported.applies_for_annual_award)
+        board = self.client.get(reverse('organize', args=[self.meeting.year]))
+        self.assertContains(board, '追加演題')
+        self.assertContains(board, '年会賞応募')
 
     def test_program_import_rejects_wrong_meeting_date_without_changes(self):
         book = Workbook()

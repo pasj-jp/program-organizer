@@ -139,7 +139,8 @@ class BoardPresentationForm(forms.ModelForm):
     class Meta:
         model = Presentation
         fields = ('title', 'title_en', 'abstract', 'presentation_format',
-                  'category_first', 'category_second', 'confirmed_category', 'organizer_note',
+                  'category_first', 'category_second', 'applies_for_annual_award',
+                  'confirmed_category', 'organizer_note',
                   'status', 'withdrawal_note')
         widgets = {
             'title': forms.Textarea(attrs={'rows': 2}),

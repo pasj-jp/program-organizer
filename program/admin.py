@@ -39,14 +39,14 @@ class AuthorInline(admin.StackedInline):
 class PresentationAdmin(admin.ModelAdmin):
     form = PresentationForm
     change_list_template = 'admin/program/presentation/change_list.html'
-    list_display = ('annual_meeting', 'submission_number', 'program_number', 'short_title', 'presenter', 'presentation_format', 'confirmed_category', 'session', 'start_time', 'effective_venue', 'status')
-    list_filter = ('annual_meeting', 'status', 'presentation_format', 'session', 'venue')
+    list_display = ('annual_meeting', 'submission_number', 'program_number', 'short_title', 'presenter', 'presentation_format', 'applies_for_annual_award', 'confirmed_category', 'session', 'start_time', 'effective_venue', 'status')
+    list_filter = ('annual_meeting', 'applies_for_annual_award', 'status', 'presentation_format', 'session', 'venue')
     search_fields = ('submission_number', 'program_number', 'title', 'title_en', 'authors__family_name', 'authors__given_name', 'authors__family_name_en', 'authors__given_name_en')
     inlines = [AuthorInline]
     actions = ['withdraw', 'restore']
     fieldsets = (
         ('編成', {'fields': ('annual_meeting', 'program_number', 'session', 'start_time', 'end_time', 'venue', 'status', 'withdrawal_note', 'organizer_note')}),
-        ('演題', {'fields': ('submission_number', 'registration_number', 'presentation_format', 'title', 'title_en', 'abstract', 'category_first', 'category_second', 'confirmed_category')}),
+        ('演題', {'fields': ('submission_number', 'registration_number', 'presentation_format', 'title', 'title_en', 'abstract', 'category_first', 'category_second', 'applies_for_annual_award', 'confirmed_category')}),
         ('登録者', {'fields': ('login_id', 'email')}),
         ('元データの著者表記', {'classes': ('collapse',), 'fields': ('author_text', 'author_text_en', 'affiliation_text', 'affiliation_text_en')}),
     )

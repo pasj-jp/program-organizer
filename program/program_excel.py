@@ -108,6 +108,10 @@ def normalized_category(value):
     return re.sub(r'\s+', '', unicodedata.normalize('NFKC', value))
 
 
+def annual_award_entry(value):
+    return value.startswith('エントリーする')
+
+
 def chosen_category(talk, source):
     if not source:
         return talk.category_first
@@ -273,7 +277,8 @@ def import_program(file, meeting):
                 talk = Presentation.objects.create(annual_meeting=meeting, submission_number=number, title=cell(row, 34),
                     title_en=cell(row, 35), abstract=cell(row, 36), login_id=cell(row, 2),
                     registration_number=cell(row, 4), email=cell(row, 15),
-                    category_first=cell(row, 37) or cell(row, 8), category_second=cell(row, 38))
+                    category_first=cell(row, 37) or cell(row, 8), category_second=cell(row, 38),
+                    applies_for_annual_award=annual_award_entry(cell(row, 39)))
                 created += 1
             else:
                 updated += 1
@@ -282,7 +287,8 @@ def import_program(file, meeting):
             category = chosen_category(talk, cell(row, 7))
             Presentation.objects.filter(pk=talk.pk).update(
                 session=session, session_order=position, confirmed_category=category,
-                presentation_format=cell(row, 5), program_number=cell(row, 9) or None)
+                presentation_format=cell(row, 5), program_number=cell(row, 9) or None,
+                applies_for_annual_award=annual_award_entry(cell(row, 39)))
             chair = cell(row, 13)
             if session.kind == Session.Kind.ORAL and category and chair:
                 chair_key = (session.pk, category)
@@ -336,6 +342,7 @@ def export_program(meeting):
                 13: chairs.get(talk.confirmed_category, ''), 15: talk.email,
                 33: format_name, 34: talk.title, 35: talk.title_en,
                 36: talk.abstract, 37: talk.category_first, 38: talk.category_second,
+                39: 'エントリーする [Entry]' if talk.applies_for_annual_award else 'エントリーしない [Not entry]',
                 48: talk.author_text, 49: talk.author_text_en,
                 50: talk.affiliation_text, 51: talk.affiliation_text_en}
             authors = sorted(talk.authors.all(), key=lambda author: author.position)
