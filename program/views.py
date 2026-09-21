@@ -245,10 +245,11 @@ def timetable(request, year):
 
 
 def _render_timetable(request, meeting, editing):
-    days, unscheduled = build_timetable(meeting)
+    venue_width = 250 if editing else 180
+    days, unscheduled = build_timetable(meeting, venue_width=venue_width)
     return render(request, 'program/timetable.html', {
         'meeting': meeting, 'days': days, 'unscheduled': unscheduled,
-        'editing': editing,
+        'editing': editing, 'venue_width': venue_width,
         'can_move_sessions': editing and request.user.has_perm('program.change_session'),
     })
 

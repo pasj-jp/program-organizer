@@ -37,7 +37,7 @@ def assign_lanes(blocks):
         item['lane_count'] = len(lane_ends)
 
 
-def build_timetable(meeting):
+def build_timetable(meeting, venue_width=250):
     session_talks = Presentation.objects.prefetch_related('authors', 'venue')
     sessions = list(Session.objects.filter(annual_meeting=meeting).select_related('venue').prefetch_related('chairs',
         Prefetch('presentations', queryset=session_talks, to_attr='session_talks')
@@ -118,7 +118,7 @@ def build_timetable(meeting):
                 block['width'] = round(100 / block['lane_count'], 4)
             venues.append({'id': venue_key, 'name': venue_names[venue_key], 'blocks': venue_blocks})
         days.append({
-            'date': day, 'venues': venues, 'height': height, 'grid_width': 64 + len(venues) * 250,
+            'date': day, 'venues': venues, 'height': height, 'grid_width': 64 + len(venues) * venue_width,
             'first_minute': start_minute, 'pixels_per_minute': PIXELS_PER_MINUTE,
             'hours': [{'label': f'{hour:02d}:00', 'top': (hour - first_hour) * 60 * PIXELS_PER_MINUTE}
                       for hour in range(first_hour, last_hour + 1)],

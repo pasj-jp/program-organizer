@@ -18,11 +18,11 @@
     .page-tabs a[aria-current=page]{color:#185979;border-bottom-color:#24749d;background:#fff}
     .days-scroll{overflow-x:auto;border:1px solid #cbd5df;border-radius:10px;background:#e8eef5}
     .days-row{display:flex;gap:.7rem;width:max-content;padding:.7rem}
-    .day{flex:none;width:var(--day-width);min-width:320px;background:#fff;border:1px solid #cbd5df;border-radius:7px;overflow:hidden}
+    .day{flex:none;width:var(--day-width);min-width:{% if editing %}320{% else %}244{% endif %}px;background:#fff;border:1px solid #cbd5df;border-radius:7px;overflow:hidden}
     .day h2{margin:0;padding:.7rem .9rem;background:#dce8f1;font-size:1.05rem}
     .day h2 small{font-weight:normal;color:#526070}
     .schedule{width:var(--grid-width)}
-    .venue-heads,.lanes{display:grid;grid-template-columns:64px repeat(var(--venue-count),250px)}
+    .venue-heads,.lanes{display:grid;grid-template-columns:64px repeat(var(--venue-count),{{ venue_width }}px)}
     .venue-heads{border-bottom:2px solid #9bafc1;background:#fff}
     .venue-head,.time-head{padding:.5rem;font-size:.85rem;font-weight:700}
     .venue-head{text-align:center;border-left:1px solid #d7e0e7}
