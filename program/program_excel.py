@@ -173,7 +173,8 @@ def read_program(file, meeting):
 def import_program(file, meeting):
     groups = read_program(file, meeting)
     numbers = [cell(row, 3) for rows in groups.values() for _, row in rows]
-    existing = {talk.submission_number: talk for talk in Presentation.objects.filter(submission_number__in=numbers)}
+    existing = {talk.submission_number: talk for talk in Presentation.objects.filter(
+        annual_meeting=meeting, submission_number__in=numbers)}
     previous_session_ids = {talk.session_id for talk in existing.values() if talk.session_id}
     missing_titles = [f'{line}行目: {number} の題目がありません。'
                       for rows in groups.values() for line, row in rows
@@ -227,10 +228,11 @@ def import_program(file, meeting):
     imported_numbers = [cell(row, 9) for rows in groups.values() for _, row in rows if cell(row, 9)]
     if len(imported_numbers) != len(set(imported_numbers)):
         raise ValueError('講演番号が重複しています。')
-    collisions = Presentation.objects.exclude(submission_number__in=numbers).filter(program_number__in=imported_numbers)
+    collisions = Presentation.objects.filter(annual_meeting=meeting).exclude(
+        submission_number__in=numbers).filter(program_number__in=imported_numbers)
     if collisions.exists():
         raise ValueError(f'講演番号「{collisions.first().program_number}」が別の演題で使用されています。')
-    Presentation.objects.filter(submission_number__in=numbers).update(program_number=None)
+    Presentation.objects.filter(annual_meeting=meeting, submission_number__in=numbers).update(program_number=None)
     created = 0
     updated = 0
     chair_names = {}
@@ -240,7 +242,7 @@ def import_program(file, meeting):
             number = cell(row, 3)
             talk = existing.get(number)
             if talk is None:
-                talk = Presentation.objects.create(submission_number=number, title=cell(row, 34),
+                talk = Presentation.objects.create(annual_meeting=meeting, submission_number=number, title=cell(row, 34),
                     title_en=cell(row, 35), abstract=cell(row, 36), login_id=cell(row, 2),
                     registration_number=cell(row, 4), email=cell(row, 15),
                     category_first=cell(row, 37) or cell(row, 8), category_second=cell(row, 38))

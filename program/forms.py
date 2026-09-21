@@ -120,6 +120,7 @@ class PresentationForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.fields['annual_meeting'].required = True
         session_id = self.data.get('session') if self.is_bound else self.instance.session_id
         try:
             session_id = int(session_id)

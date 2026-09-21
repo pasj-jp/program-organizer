@@ -117,6 +117,8 @@ class Session(models.Model):
                 if poster.kind != self.Kind.POSTER or poster.annual_meeting_id != self.annual_meeting_id:
                     raise ValidationError({field: '同じ年会のポスターセッションを選んでください。'})
         if self.pk:
+            if self.presentations.exclude(annual_meeting_id=self.annual_meeting_id).exists():
+                raise ValidationError({'annual_meeting': '割り当て済みの演題と異なる年会へ変更できません。'})
             linked_reports = self.facility_reports_first.all() | self.facility_reports_second.all()
             if self.kind != self.Kind.POSTER and linked_reports.exists():
                 raise ValidationError({'kind': '施設報告ポスターから参照されているため変更できません。'})
@@ -158,7 +160,8 @@ class Session(models.Model):
             return
         talks = list(self.presentations.order_by('session_order', 'submission_number', 'pk'))
         numbers = [f'{self.code}{position:02d}' for position in range(1, len(talks) + 1)]
-        conflict = Presentation.objects.filter(program_number__in=numbers).exclude(session=self).exists()
+        conflict = Presentation.objects.filter(annual_meeting_id=self.annual_meeting_id,
+            program_number__in=numbers).exclude(session=self).exists()
         if conflict:
             raise ValidationError({'code': '生成されるプログラム番号が他の演題と重複します。'})
         with transaction.atomic():
@@ -185,7 +188,9 @@ class Presentation(models.Model):
         ACTIVE = 'active', '発表予定'
         WITHDRAWN = 'withdrawn', '発表取り消し'
 
-    submission_number = models.CharField('演題登録番号', max_length=50, unique=True)
+    annual_meeting = models.ForeignKey(AnnualMeeting, verbose_name='年会情報', on_delete=models.PROTECT,
+        null=True, blank=True, related_name='presentations')
+    submission_number = models.CharField('演題登録番号', max_length=50)
     registration_number = models.CharField('参加登録番号', max_length=50, blank=True)
     login_id = models.CharField('ログインID', max_length=100, blank=True)
     email = models.EmailField('メールアドレス', blank=True)
@@ -200,7 +205,7 @@ class Presentation(models.Model):
     author_text_en = models.TextField('著者情報（英語）', blank=True)
     affiliation_text = models.TextField('著者所属情報', blank=True)
     affiliation_text_en = models.TextField('著者所属情報（英語）', blank=True)
-    program_number = models.CharField('プログラム番号', max_length=50, unique=True, null=True, blank=True)
+    program_number = models.CharField('プログラム番号', max_length=50, null=True, blank=True)
     session = models.ForeignKey(Session, verbose_name='セッション', on_delete=models.SET_NULL, null=True, blank=True, related_name='presentations')
     start_time = models.TimeField('発表開始時刻', null=True, blank=True)
     end_time = models.TimeField('発表終了時刻', null=True, blank=True)
@@ -214,6 +219,10 @@ class Presentation(models.Model):
         verbose_name = '演題'
         verbose_name_plural = '演題'
         ordering = ['program_number', 'submission_number']
+        constraints = [
+            models.UniqueConstraint(fields=['annual_meeting', 'submission_number'], name='unique_submission_per_meeting'),
+            models.UniqueConstraint(fields=['annual_meeting', 'program_number'], name='unique_program_per_meeting'),
+        ]
 
     def __str__(self):
         return f'{self.submission_number} {self.title}'
@@ -222,6 +231,8 @@ class Presentation(models.Model):
         if self.start_time and self.end_time and self.start_time >= self.end_time:
             raise ValidationError('発表終了時刻は開始時刻より後にしてください。')
         if self.session_id:
+            if self.session.annual_meeting_id != self.annual_meeting_id:
+                raise ValidationError({'session': '演題と同じ年会のセッションを選んでください。'})
             if not self.session.accepts_presentation(self):
                 raise ValidationError('発表形式がセッションと一致しません。')
             if (self.session.kind == Session.Kind.ORAL and self.session.talk_limit

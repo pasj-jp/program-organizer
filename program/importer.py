@@ -27,7 +27,7 @@ def value(row, key):
 
 
 @transaction.atomic
-def import_abstracts(file):
+def import_abstracts(file, meeting):
     try:
         book = load_workbook(file, read_only=True, data_only=True)
     except Exception as exc:
@@ -53,7 +53,8 @@ def import_abstracts(file):
             defaults = {field: value(row, heading) for field, heading in SOURCE_FIELDS.items()}
             if not defaults['title']:
                 raise ValueError(f'{index} 行目: 題目がありません。')
-            presentation, is_new = Presentation.objects.update_or_create(submission_number=number, defaults=defaults)
+            presentation, is_new = Presentation.objects.update_or_create(
+                annual_meeting=meeting, submission_number=number, defaults=defaults)
             created += is_new
             updated += not is_new
             # 著者はソースの順序と登壇者区分に合わせて更新する。

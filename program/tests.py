@@ -23,13 +23,41 @@ class OrganizerTests(TestCase):
             start_date=date(2026, 9, 19), end_date=date(2026, 9, 21), location='東京')
         self.session = Session.objects.create(name='加速器', code='FRO', annual_meeting=self.meeting,
             start_time=time(10, 0), minutes_per_presentation=20)
-        self.first = Presentation.objects.create(submission_number='A1', title='第一演題')
-        self.second = Presentation.objects.create(submission_number='A2', title='第二演題')
+        self.first = Presentation.objects.create(annual_meeting=self.meeting, submission_number='A1', title='第一演題')
+        self.second = Presentation.objects.create(annual_meeting=self.meeting, submission_number='A2', title='第二演題')
 
     def move(self, presentation, session_id, order):
         return self.client.post(reverse('move_presentation'),
-                                json.dumps({'presentation_id': presentation.pk, 'session_id': session_id, 'order': order}),
+                                json.dumps({'presentation_id': presentation.pk, 'session_id': session_id,
+                                            'meeting_id': self.meeting.pk, 'order': order}),
                                 content_type='application/json')
+
+    def test_presentations_are_scoped_to_meeting(self):
+        other = AnnualMeeting.objects.create(name='翌年会', abbreviation='PASJ2027',
+            start_date=date(2027, 9, 19), end_date=date(2027, 9, 21), location='大阪')
+        self.assertNotContains(self.client.get(reverse('organize', args=[2027])), '第一演題')
+        other_talk = Presentation.objects.create(annual_meeting=other, submission_number='A1', title='翌年の演題')
+        self.assertContains(self.client.get(reverse('organize', args=[2027])), '翌年の演題')
+        self.assertNotContains(self.client.get(reverse('organize', args=[2026])), '翌年の演題')
+        self.assertEqual(self.move(other_talk, self.session.pk, [other_talk.pk]).status_code, 400)
+        self.assertEqual(self.move(self.first, None, [self.first.pk, self.second.pk, other_talk.pk]).status_code, 409)
+
+    def test_abstract_import_can_reuse_submission_number_in_another_meeting(self):
+        other = AnnualMeeting.objects.create(name='翌年会', abbreviation='PASJ2027',
+            start_date=date(2027, 9, 19), end_date=date(2027, 9, 21), location='大阪')
+        book = Workbook()
+        sheet = book.active
+        sheet.append(['演題登録番号', '題目', '発表形式', '連名者[1]区分'])
+        sheet.append(['A1', '翌年の演題', '口頭発表', ''])
+        output = BytesIO()
+        book.save(output)
+        output.seek(0)
+        output.name = 'abstract.xlsx'
+        response = self.client.post(reverse('import_abstract_excel', args=[other.year]), {'file': output})
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(Presentation.objects.get(annual_meeting=other, submission_number='A1').title, '翌年の演題')
+        self.first.refresh_from_db()
+        self.assertEqual(self.first.title, '第一演題')
 
     def test_public_timetable_is_read_only_and_editor_has_tabs(self):
         self.session.date = date(2026, 9, 19)
@@ -257,7 +285,7 @@ class OrganizerTests(TestCase):
         self.assertEqual(self.second.program_number, 'FRO01')
         self.session.refresh_from_db()
         self.assertEqual(self.session.end_time, time(10, 40))
-        third = Presentation.objects.create(submission_number='A3', title='第三演題')
+        third = Presentation.objects.create(annual_meeting=self.meeting, submission_number='A3', title='第三演題')
         self.assertEqual(self.move(third, self.session.pk,
                                    [self.second.pk, self.first.pk, third.pk]).status_code, 200)
         self.second.refresh_from_db()
@@ -556,12 +584,12 @@ class OrganizerTests(TestCase):
         self.assertEqual(mismatched_edit.status_code, 400)
         self.assertContains(mismatched_edit, '発表形式がセッションと一致しません。', status_code=400)
         self.assertEqual(self.move(self.second, oral.pk, [self.first.pk, self.second.pk]).status_code, 200)
-        third = Presentation.objects.create(submission_number='A3', title='第三演題',
+        third = Presentation.objects.create(annual_meeting=self.meeting, submission_number='A3', title='第三演題',
                                              presentation_format='口頭発表 [Oral]')
         full = self.move(third, oral.pk, [self.first.pk, self.second.pk, third.pk])
         self.assertEqual(full.status_code, 400)
         self.assertIn('満員', full.json()['error'])
-        poster_talk = Presentation.objects.create(submission_number='A4', title='ポスター演題',
+        poster_talk = Presentation.objects.create(annual_meeting=self.meeting, submission_number='A4', title='ポスター演題',
                                                    presentation_format='ポスター発表 [Poster]')
         mismatch = self.move(poster_talk, oral.pk, [self.first.pk, self.second.pk, poster_talk.pk])
         self.assertEqual(mismatch.status_code, 400)
@@ -629,7 +657,7 @@ class OrganizerTests(TestCase):
             'poster_session_one': poster_one.pk, 'poster_session_two': other_poster.pk,
         }, meeting_id=self.meeting.pk)
         self.assertFalse(cross_meeting.is_valid())
-        second_talk = Presentation.objects.create(submission_number='A3', title='追加報告',
+        second_talk = Presentation.objects.create(annual_meeting=self.meeting, submission_number='A3', title='追加報告',
             presentation_format='施設技術報告ポスター [Status report]')
         self.assertEqual(self.move(second_talk, report.pk, [self.first.pk, second_talk.pk]).status_code, 200)
         poster_one.refresh_from_db()
@@ -643,7 +671,7 @@ class OrganizerTests(TestCase):
         self.second.presentation_format = 'ポスター発表 [Poster]'
         self.second.save(update_fields=['presentation_format'])
         self.assertEqual(self.move(self.second, poster_one.pk, [self.second.pk]).status_code, 200)
-        extra_poster = Presentation.objects.create(submission_number='A4', title='追加ポスター',
+        extra_poster = Presentation.objects.create(annual_meeting=self.meeting, submission_number='A4', title='追加ポスター',
             presentation_format='ポスター発表 [Poster]')
         self.assertEqual(self.move(extra_poster, poster_one.pk,
                                    [self.second.pk, extra_poster.pk]).status_code, 200)

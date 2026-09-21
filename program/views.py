@@ -52,9 +52,7 @@ def _organize_board(request, meeting, session_form=None, program_form=None, abst
         'venue', 'poster_session_one', 'poster_session_two').prefetch_related('chairs').order_by('board_order', 'date', 'start_time', 'name', 'id'))
     presentations = Presentation.objects.filter(
         Q(status=Presentation.Status.ACTIVE) | Q(status=Presentation.Status.WITHDRAWN, session__isnull=False)
-    ).filter(
-        Q(session__isnull=True) | Q(session__annual_meeting=meeting)
-    ).prefetch_related('authors').order_by('session_order', 'submission_number')
+    ).filter(annual_meeting=meeting).prefetch_related('authors').order_by('session_order', 'submission_number')
     cards = {session.id: [] for session in sessions}
     unassigned = []
     presentation_formats = set()
@@ -132,7 +130,7 @@ def import_abstract_excel(request, year):
     form = AbstractExcelImportForm(request.POST, request.FILES)
     if form.is_valid():
         try:
-            created, updated = import_abstracts(form.cleaned_data['file'])
+            created, updated = import_abstracts(form.cleaned_data['file'], meeting)
         except (ValueError, OSError) as exc:
             form.add_error('file', str(exc))
         else:
@@ -217,25 +215,31 @@ def move_presentation(request):
         target_id = data['session_id']
         target_id = int(target_id) if target_id is not None else None
         order = [int(x) for x in data['order']]
+        meeting_id = data.get('meeting_id')
+        meeting_id = int(meeting_id) if meeting_id is not None else None
     except (ValueError, TypeError, KeyError, json.JSONDecodeError):
         return JsonResponse({'error': '不正なデータです。'}, status=400)
     if len(order) != len(set(order)) or presentation_id not in order:
         return JsonResponse({'error': '演題の順序が不正です。'}, status=400)
     with transaction.atomic():
         moved = get_object_or_404(Presentation.objects.select_for_update(), pk=presentation_id, status=Presentation.Status.ACTIVE)
+        if moved.annual_meeting_id != meeting_id:
+            return JsonResponse({'error': '異なる年会の演題は移動できません。'}, status=400)
         old_id = moved.session_id
         target_session = None
         if target_id is not None:
             target_session = Session.objects.select_for_update().filter(pk=target_id).first()
             if target_session is None:
                 return JsonResponse({'error': 'セッションが見つかりません。'}, status=404)
+            if target_session.annual_meeting_id != meeting_id:
+                return JsonResponse({'error': '異なる年会のセッションには移動できません。'}, status=400)
             if not target_session.accepts_presentation(moved):
                 return JsonResponse({'error': '発表形式がセッションと一致しません。'}, status=400)
             if (old_id != target_id and target_session.kind == Session.Kind.ORAL
                     and target_session.talk_limit is not None
                     and target_session.presentations.count() >= target_session.talk_limit):
                 return JsonResponse({'error': 'この口頭発表セッションは満員です。'}, status=400)
-        target_talks = Presentation.objects.filter(session_id=target_id)
+        target_talks = Presentation.objects.filter(annual_meeting_id=meeting_id, session_id=target_id)
         if target_id is None:
             target_talks = target_talks.filter(status=Presentation.Status.ACTIVE)
         expected = set(target_talks.values_list('id', flat=True))
@@ -248,7 +252,7 @@ def move_presentation(request):
         for position, pk in enumerate(order, start=1):
             Presentation.objects.filter(pk=pk).update(session_order=position)
         if old_id != target_id:
-            remaining = Presentation.objects.filter(session_id=old_id)
+            remaining = Presentation.objects.filter(annual_meeting_id=meeting_id, session_id=old_id)
             if old_id is None:
                 remaining = remaining.filter(status=Presentation.Status.ACTIVE)
             remaining = remaining.order_by('session_order', 'id')

@@ -147,7 +147,7 @@ if(canChange){
       const order=[...target.querySelectorAll('.card')].map(c=>Number(c.dataset.id));
       const token=document.cookie.split('; ').find(x=>x.startsWith('csrftoken='))?.split('=')[1];
       try{
-        const response=await fetch(board.dataset.moveUrl,{method:'POST',headers:{'Content-Type':'application/json','X-CSRFToken':decodeURIComponent(token||'')},body:JSON.stringify({presentation_id:Number(card.dataset.id),session_id:target.dataset.session||null,order})});
+        const response=await fetch(board.dataset.moveUrl,{method:'POST',headers:{'Content-Type':'application/json','X-CSRFToken':decodeURIComponent(token||'')},body:JSON.stringify({presentation_id:Number(card.dataset.id),session_id:target.dataset.session||null,meeting_id:board.dataset.meetingId||null,order})});
         const result=await response.json();
         if(!response.ok)throw new Error(result.error||'保存できませんでした。');
         card.hidden=false;

@@ -8,6 +8,7 @@ from .importer import import_abstracts
 
 
 class ImportForm(forms.Form):
+    annual_meeting = forms.ModelChoiceField(label='年会情報', queryset=AnnualMeeting.objects.all())
     file = forms.FileField(label='アブストラクト Excel ファイル (.xlsx)')
 
     def clean_file(self):
@@ -38,13 +39,13 @@ class AuthorInline(admin.StackedInline):
 class PresentationAdmin(admin.ModelAdmin):
     form = PresentationForm
     change_list_template = 'admin/program/presentation/change_list.html'
-    list_display = ('submission_number', 'program_number', 'short_title', 'presenter', 'presentation_format', 'confirmed_category', 'session', 'start_time', 'effective_venue', 'status')
-    list_filter = ('status', 'presentation_format', 'session', 'venue')
+    list_display = ('annual_meeting', 'submission_number', 'program_number', 'short_title', 'presenter', 'presentation_format', 'confirmed_category', 'session', 'start_time', 'effective_venue', 'status')
+    list_filter = ('annual_meeting', 'status', 'presentation_format', 'session', 'venue')
     search_fields = ('submission_number', 'program_number', 'title', 'title_en', 'authors__family_name', 'authors__given_name', 'authors__family_name_en', 'authors__given_name_en')
     inlines = [AuthorInline]
     actions = ['withdraw', 'restore']
     fieldsets = (
-        ('編成', {'fields': ('program_number', 'session', 'start_time', 'end_time', 'venue', 'status', 'withdrawal_note', 'organizer_note')}),
+        ('編成', {'fields': ('annual_meeting', 'program_number', 'session', 'start_time', 'end_time', 'venue', 'status', 'withdrawal_note', 'organizer_note')}),
         ('演題', {'fields': ('submission_number', 'registration_number', 'presentation_format', 'title', 'title_en', 'abstract', 'category_first', 'category_second', 'confirmed_category')}),
         ('登録者', {'fields': ('login_id', 'email')}),
         ('元データの著者表記', {'classes': ('collapse',), 'fields': ('author_text', 'author_text_en', 'affiliation_text', 'affiliation_text_en')}),
@@ -88,7 +89,7 @@ class PresentationAdmin(admin.ModelAdmin):
         form = ImportForm(request.POST or None, request.FILES or None)
         if request.method == 'POST' and form.is_valid():
             try:
-                created, updated = import_abstracts(form.cleaned_data['file'])
+                created, updated = import_abstracts(form.cleaned_data['file'], form.cleaned_data['annual_meeting'])
             except (ValueError, OSError) as exc:
                 form.add_error('file', str(exc))
             else:
