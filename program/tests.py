@@ -42,6 +42,45 @@ class OrganizerTests(TestCase):
         self.assertEqual(self.move(other_talk, self.session.pk, [other_talk.pk]).status_code, 400)
         self.assertEqual(self.move(self.first, None, [self.first.pk, self.second.pk, other_talk.pk]).status_code, 409)
 
+    def test_program_json_download(self):
+        self.session.date = self.meeting.start_date
+        self.session.save()
+        self.move(self.first, self.session.pk, [self.first.pk])
+        self.first.authors.create(position=1, is_presenter=True, family_name='山田', given_name='太郎')
+        self.first.status = Presentation.Status.WITHDRAWN
+        self.first.save(update_fields=['status'])
+        response = self.client.get(reverse('export_program_json', args=[2026]))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Disposition'], 'attachment; filename="pasj2026_program.json"')
+        self.assertEqual(response['Content-Type'], 'application/json; charset=utf-8')
+        rows = response.json()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['submission_id'], 'A1')
+        self.assertEqual(rows[0]['talk_id'], 'FRO01')
+        self.assertEqual(rows[0]['title_ja'], '第一演題')
+        self.assertEqual(rows[0]['date'], '9月19日')
+        self.assertEqual(rows[0]['coauthors'][0]['last_name'], '山田')
+        self.assertEqual(rows[0]['coauthors'][0]['index'], 1)
+        self.assertNotIn('メールアドレス', rows[0])
+        self.assertContains(self.client.get(reverse('organize', args=[2026])),
+                            reverse('export_program_json', args=[2026]))
+        other = AnnualMeeting.objects.create(name='翌年会', abbreviation='PASJ2027',
+            start_date=date(2027, 9, 19), end_date=date(2027, 9, 21), location='大阪')
+        self.assertEqual(self.client.get(reverse('export_program_json', args=[other.year])).json(), [])
+        self.assertEqual(self.client.get(reverse('export_program_json', args=[2028])).status_code, 404)
+
+    def test_program_json_download_requires_board_permissions(self):
+        url = reverse('export_program_json', args=[2026])
+        self.client.logout()
+        self.assertEqual(self.client.get(url).status_code, 302)
+        reader = get_user_model().objects.create_user('json-reader')
+        self.client.force_login(reader)
+        self.assertEqual(self.client.get(url).status_code, 403)
+        reader.user_permissions.add(Permission.objects.get(content_type__app_label='program', codename='view_presentation'))
+        self.assertEqual(self.client.get(url).status_code, 403)
+        reader.user_permissions.add(Permission.objects.get(content_type__app_label='program', codename='view_session'))
+        self.assertEqual(self.client.get(url).status_code, 200)
+
     def test_abstract_import_can_reuse_submission_number_in_another_meeting(self):
         other = AnnualMeeting.objects.create(name='翌年会', abbreviation='PASJ2027',
             start_date=date(2027, 9, 19), end_date=date(2027, 9, 21), location='大阪')
@@ -136,12 +175,15 @@ class OrganizerTests(TestCase):
         self.assertNotEqual(report.poster_session_one_id, report.poster_session_two_id)
         exported = self.client.get(reverse('export_program_excel', args=[self.meeting.year]))
         self.assertEqual(exported.status_code, 200)
-        self.assertIn('filename="program.xlsx"', exported['Content-Disposition'])
+        self.assertIn('filename="pasj2026_program.xlsx"', exported['Content-Disposition'])
         rows = list(load_workbook(BytesIO(exported.content), read_only=True, data_only=True).active.values)
         self.assertEqual(len(rows[0]), len(HEADERS))
         self.assertEqual(len(rows), 6)
         self.assertEqual(rows[1][38], 'エントリーする [Entry]')
         self.assertEqual(len(read_program(BytesIO(exported.content), self.meeting)), 4)
+        from .pasj_program_to_json import convert_row, read_xlsx
+        json_export = self.client.get(reverse('export_program_json', args=[self.meeting.year]))
+        self.assertEqual(json_export.json(), [convert_row(row) for row in read_xlsx(BytesIO(exported.content))])
         reordered = Workbook()
         order = list(range(len(HEADERS)))
         order[2], order[33] = order[33], order[2]
@@ -200,7 +242,7 @@ class OrganizerTests(TestCase):
         self.assertContains(board, 'data-open-dialog="session-create-dialog"')
         self.assertContains(board, 'data-open-dialog="program-import-dialog"')
         self.assertContains(board, 'data-open-dialog="abstract-import-dialog"')
-        self.assertContains(board, 'aria-label="program.xlsx をエクスポート"')
+        self.assertContains(board, 'aria-label="プログラムをエクスポート"')
         self.assertContains(board, '<dialog id="session-create-dialog"')
         self.assertNotContains(board, '<details class="create"')
         invalid = self.client.post(reverse('create_session', args=[self.meeting.year]), {
@@ -494,7 +536,7 @@ class OrganizerTests(TestCase):
         self.assertContains(response, '第2希望: ビーム物理')
         self.assertContains(response, 'class="edit-presentation"')
         self.assertNotContains(response, reverse('admin:program_presentation_change', args=[self.first.pk]))
-        self.assertContains(response, 'src="/static/program/organize.js?v=6"')
+        self.assertContains(response, 'src="/static/program/organize.js?v=7"')
         self.assertContains(response, 'data-move-url="/organize/move/"')
 
     def test_presentation_edit_popup_saves_and_validates(self):

@@ -49,6 +49,11 @@ document.querySelectorAll('.action-dialog').forEach(dialog=>{
     dialog.querySelector('.errorlist')?.scrollIntoView({block:'nearest'});
   }
 });
+document.getElementById('program-export-form')?.addEventListener('submit',event=>{
+  const form=event.currentTarget;
+  form.action=form.querySelector('input[name="format"]:checked').dataset.downloadUrl;
+  form.closest('dialog').close();
+});
 function refreshCounts(){document.querySelectorAll('.column').forEach(col=>col.querySelector('.count').textContent=col.querySelectorAll('.card').length);}
 function applyFilter(){
   const format=formatFilter.value;

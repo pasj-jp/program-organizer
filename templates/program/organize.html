@@ -10,8 +10,21 @@
 {% if meeting %}<div class="toolbar board-actions">
   {% if can_add_session %}<button type="button" class="icon-action create-session-action" data-open-dialog="session-create-dialog" aria-label="セッションを作成" title="セッションを作成"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>{% endif %}
   {% if can_import_program %}<button type="button" class="icon-action" data-open-dialog="program-import-dialog" aria-label="program.xlsx をインポート" title="program.xlsx をインポート"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v12m0 0-5-5m5 5 5-5M4 16v4h16v-4"/></svg></button>{% endif %}
-  <a class="icon-action" href="{% url 'export_program_excel' meeting.year %}" aria-label="program.xlsx をエクスポート" title="program.xlsx をエクスポート"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0-5 5m5-5 5 5M4 16v4h16v-4"/></svg></a>
+  <button type="button" class="icon-action" data-open-dialog="program-export-dialog" aria-label="プログラムをエクスポート" title="プログラムをエクスポート"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0-5 5m5-5 5 5M4 16v4h16v-4"/></svg></button>
 </div>{% endif %}
+{% if meeting %}
+<dialog id="program-export-dialog" class="action-dialog" aria-labelledby="program-export-title">
+  <form id="program-export-form" method="get" action="{% url 'export_program_excel' meeting.year %}">
+    <h2 id="program-export-title">プログラムをエクスポート</h2>
+    <fieldset>
+      <legend>ファイル形式</legend>
+      <div><label><input type="radio" name="format" value="xlsx" data-download-url="{% url 'export_program_excel' meeting.year %}" checked> XLSX（{{ meeting.abbreviation|lower }}_program.xlsx）</label></div>
+      <div><label><input type="radio" name="format" value="json" data-download-url="{% url 'export_program_json' meeting.year %}"> JSON（{{ meeting.abbreviation|lower }}_program.json）</label></div>
+    </fieldset>
+    <div class="dialog-actions"><button type="button" class="dialog-cancel">キャンセル</button><button type="submit">ダウンロード</button></div>
+  </form>
+</dialog>
+{% endif %}
 {% if can_add_session and not legacy %}<dialog id="session-create-dialog" class="action-dialog" aria-labelledby="session-create-title"{% if session_form.errors %} data-open-on-error="true"{% endif %}><form method="post" action="{% url 'create_session' meeting.year %}">{% csrf_token %}<h2 id="session-create-title">新しいセッションを作成</h2><p class="hint">施設報告ポスターを作る前に、対応するポスターセッションを2つ作成してください。</p>{% for field in session_form %}{% if field.name != 'annual_meeting' %}<p class="edit-field">{{ field.label_tag }} {{ field }} {{ field.errors }}</p>{% endif %}{% endfor %}{{ session_form.non_field_errors }}<div class="dialog-actions"><button type="button" class="dialog-cancel">キャンセル</button><button type="submit">作成</button></div></form></dialog>{{ session_form.media }}{% endif %}
 {% if can_import_program %}<dialog id="program-import-dialog" class="action-dialog" aria-labelledby="program-import-title"{% if program_form.errors %} data-open-on-error="true"{% endif %}><form method="post" action="{% url 'import_program_excel' meeting.year %}" enctype="multipart/form-data">{% csrf_token %}<h2 id="program-import-title">program.xlsx をインポート</h2><p class="hint">対象年会の会期・演題登録番号を確認してから取り込みます。</p>{{ program_form.as_p }}<div class="dialog-actions"><button type="button" class="dialog-cancel">キャンセル</button><button type="submit">取り込む</button></div></form></dialog>{% endif %}
 {% if can_import_abstract %}<dialog id="abstract-import-dialog" class="action-dialog" aria-labelledby="abstract-import-title"{% if abstract_form.errors %} data-open-on-error="true"{% endif %}><form method="post" action="{% url 'import_abstract_excel' meeting.year %}" enctype="multipart/form-data">{% csrf_token %}<h2 id="abstract-import-title">abstract.xlsx をインポート</h2><p class="hint">演題登録番号で照合し、演題情報と著者情報を取り込みます。</p>{{ abstract_form.as_p }}<div class="dialog-actions"><button type="button" class="dialog-cancel">キャンセル</button><button type="submit">取り込む</button></div></form></dialog>{% endif %}
@@ -45,4 +58,4 @@
 <dialog id="presentation-dialog" aria-labelledby="presentation-dialog-title"><div id="presentation-dialog-content"></div></dialog>
 <dialog id="chairs-dialog" aria-labelledby="chairs-dialog-title"><div id="chairs-dialog-content"></div></dialog>
 </main>
-<script defer src="{% static 'program/organize.js' %}?v=6"></script></body></html>
+<script defer src="{% static 'program/organize.js' %}?v=7"></script></body></html>
