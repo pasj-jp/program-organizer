@@ -12,6 +12,7 @@ urlpatterns = [
     path('procgen/<int:year>/<str:program_code>/pdf/', views.proceedings_pdf, name='proceedings_pdf'),
     path('organize/move/', views.move_presentation, name='move_presentation'),
     path('organize/presentation/<int:presentation_id>/edit/', views.edit_presentation, name='edit_presentation'),
+    path('organize/session/<int:session_id>/edit/', views.edit_session, name='edit_session'),
     path('organize/session/<int:session_id>/chairs/', views.edit_session_chairs, name='edit_session_chairs'),
     path('organize/<int:year>/reorder-sessions/', views.reorder_sessions, name='reorder_sessions'),
     path('organize/<int:year>/import-program/', views.import_program_excel, name='import_program_excel'),

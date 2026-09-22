@@ -229,6 +229,14 @@ class SessionChairsForm(forms.Form):
             self.fields[f'chair_{index}'] = forms.CharField(label=category, max_length=200, required=False,
                 initial=names.get(category, ''), help_text='空欄で保存すると座長を削除します。')
 
+    def save(self, session):
+        for index, category in enumerate(self.categories):
+            name = self.cleaned_data[f'chair_{index}'].strip()
+            if name:
+                session.chairs.update_or_create(category=category, defaults={'name': name})
+            else:
+                session.chairs.filter(category=category).delete()
+
 
 class ProgramExcelImportForm(forms.Form):
     file = forms.FileField(label='program.xlsx 形式のExcelファイル')

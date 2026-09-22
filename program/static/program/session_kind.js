@@ -1,9 +1,11 @@
-document.addEventListener('DOMContentLoaded', () => {
-  const kind = document.getElementById('id_kind');
-  const meeting = document.getElementById('id_annual_meeting');
+function initializeSessionKind(root = document) {
+  const kind = root.querySelector('[name=kind], [name="session-kind"]');
+  const meeting = root.querySelector('[name=annual_meeting], [name="session-annual_meeting"]');
   if (!kind) return;
 
   function updateFields() {
+    const chairs = root.querySelector('[data-session-chairs]');
+    if (chairs) chairs.hidden = kind.value !== 'oral';
     const fields = {
       date: kind.value !== 'facility_report',
       start_time: kind.value !== 'facility_report',
@@ -16,12 +18,12 @@ document.addEventListener('DOMContentLoaded', () => {
       empty_duration_minutes: kind.value === 'other',
     };
     for (const [name, visible] of Object.entries(fields)) {
-      const input = document.getElementById(`id_${name}`);
+      const input = root.querySelector(`[name="${name}"], [name="session-${name}"]`);
       const row = input?.closest('p, .form-row');
       if (row) row.style.display = visible ? '' : 'none';
     }
     for (const name of ['poster_session_one', 'poster_session_two']) {
-      const select = document.getElementById(`id_${name}`);
+      const select = root.querySelector(`[name="${name}"], [name="session-${name}"]`);
       if (!select || !meeting) continue;
       for (const option of select.options) {
         option.hidden = Boolean(option.value) && option.dataset.meeting !== meeting.value;
@@ -34,4 +36,5 @@ document.addEventListener('DOMContentLoaded', () => {
   kind.addEventListener('change', updateFields);
   meeting?.addEventListener('change', updateFields);
   updateFields();
-});
+}
+document.addEventListener('DOMContentLoaded', () => initializeSessionKind());

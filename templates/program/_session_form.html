@@ -1,0 +1,18 @@
+<form method="post" action="{% url 'edit_session' session.pk %}" id="session-edit-form">
+  {% csrf_token %}
+  <h2 id="session-dialog-title">セッションを編集</h2>
+  {{ form.non_field_errors }}
+  {% for field in form %}{% if field.name != 'annual_meeting' %}
+  <p class="edit-field">{{ field.label_tag }} {{ field }} {{ field.errors }}{% if field.help_text %}<span class="helptext">{{ field.help_text }}</span>{% endif %}</p>
+  {% endif %}{% endfor %}
+  <section data-session-chairs>
+    <h3>座長</h3>
+    {% if chairs_form.fields %}
+    <p class="hint">カテゴリーごとに座長を入力してください。空欄で保存すると座長を削除します。</p>
+    {% for field in chairs_form %}<p class="edit-field">{{ field.label_tag }} {{ field }} {{ field.errors }}</p>{% endfor %}
+    {% else %}
+    <p class="hint">先に演題を割り当て、カテゴリーを設定してください。</p>
+    {% endif %}
+  </section>
+  <div class="dialog-actions"><button type="button" class="dialog-cancel">キャンセル</button><button type="submit">保存</button></div>
+</form>

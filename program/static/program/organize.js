@@ -100,24 +100,25 @@ presentationDialog.addEventListener('submit',async event=>{
   }catch(error){notice(error.message,true);presentationDialog.close();}
   finally{submit.disabled=false;}
 });
-const chairsDialog = document.getElementById('chairs-dialog');
-const chairsDialogContent = document.getElementById('chairs-dialog-content');
+const sessionDialog = document.getElementById('session-dialog');
+const sessionDialogContent = document.getElementById('session-dialog-content');
 board.addEventListener('click',async event=>{
-  const button=event.target.closest('.edit-chairs');
+  const button=event.target.closest('.edit-session');
   if(!button)return;
   try{
     const response=await fetch(button.dataset.editUrl);
-    if(!response.ok)throw new Error('座長の編集画面を開けませんでした。');
-    chairsDialogContent.innerHTML=await response.text();
-    chairsDialog.showModal();
-    chairsDialog.querySelector('input')?.focus();
+    if(!response.ok)throw new Error('セッションの編集画面を開けませんでした。');
+    sessionDialogContent.innerHTML=await response.text();
+    initializeSessionKind(sessionDialogContent);
+    sessionDialog.showModal();
+    sessionDialog.querySelector('input:not([type=hidden])')?.focus();
   }catch(error){notice(error.message,true);}
 });
-chairsDialog.addEventListener('click',event=>{
-  if(event.target.closest('.dialog-cancel'))chairsDialog.close();
+sessionDialog.addEventListener('click',event=>{
+  if(event.target.closest('.dialog-cancel'))sessionDialog.close();
 });
-chairsDialog.addEventListener('submit',async event=>{
-  if(event.target.id!=='session-chairs-form')return;
+sessionDialog.addEventListener('submit',async event=>{
+  if(event.target.id!=='session-edit-form')return;
   event.preventDefault();
   const form=event.target;
   const submit=form.querySelector('button[type="submit"]');
@@ -125,12 +126,14 @@ chairsDialog.addEventListener('submit',async event=>{
   try{
     const response=await fetch(form.action,{method:'POST',body:new FormData(form)});
     if(response.status===400){
-      chairsDialogContent.innerHTML=await response.text();
+      sessionDialogContent.innerHTML=await response.text();
+      initializeSessionKind(sessionDialogContent);
+      sessionDialog.querySelector('.errorlist')?.scrollIntoView({block:'nearest'});
       return;
     }
-    if(!response.ok)throw new Error('座長を保存できませんでした。');
+    if(!response.ok)throw new Error('セッションを保存できませんでした。');
     location.reload();
-  }catch(error){notice(error.message,true);chairsDialog.close();}
+  }catch(error){notice(error.message,true);sessionDialog.close();}
   finally{submit.disabled=false;}
 });
 if(canChange){

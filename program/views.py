@@ -11,7 +11,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_http_methods
 from django.views.decorators.http import require_POST
 from django.views.decorators.cache import never_cache
-from .models import AnnualMeeting, Presentation, Session, SessionChair
+from .models import AnnualMeeting, Presentation, Session
 from .forms import AbstractExcelImportForm, BoardPresentationForm, ProgramExcelImportForm, SessionChairsForm, SessionForm
 from .forms import ProceedingsUploadForm
 from .timetable import build_timetable
@@ -133,7 +133,7 @@ def _organize_board(request, meeting, session_form=None, program_form=None, abst
         'can_change': request.user.has_perm('program.change_presentation'),
         'can_add_session': request.user.has_perm('program.add_session'),
         'can_reorder_sessions': meeting is not None and request.user.has_perm('program.change_session'),
-        'can_edit_chairs': request.user.has_perm('program.change_session'),
+        'can_edit_session': request.user.has_perm('program.change_session'),
         'can_import_program': meeting is not None and request.user.has_perms([
             'program.add_session', 'program.change_session', 'program.add_presentation',
             'program.change_presentation', 'program.add_venue']),
@@ -244,18 +244,46 @@ def edit_presentation(request, presentation_id):
 
 @login_required
 @require_http_methods(['GET', 'POST'])
+def edit_session(request, session_id):
+    _require_permissions(request.user, 'change_session')
+    session = get_object_or_404(Session, pk=session_id)
+    data = None
+    if request.method == 'POST':
+        data = request.POST.copy()
+        data['session-annual_meeting'] = session.annual_meeting_id or ''
+        # The end time is derived again on save, not an editable field.
+        session.end_time = None
+    form = SessionForm(data, instance=session, meeting_id=session.annual_meeting_id,
+                       prefix='session')
+    chairs_form = SessionChairsForm(data, session=session, prefix='chairs')
+    if request.method == 'POST':
+        valid = form.is_valid()
+        edit_chairs = form.cleaned_data.get('kind') == Session.Kind.ORAL
+        chairs_valid = chairs_form.is_valid() if edit_chairs else True
+        if valid and chairs_valid:
+            try:
+                with transaction.atomic():
+                    form.save()
+                    if edit_chairs:
+                        chairs_form.save(session)
+            except ValidationError as exc:
+                form.add_error(None, exc)
+            else:
+                return JsonResponse({'ok': True})
+    return render(request, 'program/_session_form.html',
+                  {'form': form, 'chairs_form': chairs_form, 'session': session},
+                  status=400 if request.method == 'POST' else 200)
+
+
+@login_required
+@require_http_methods(['GET', 'POST'])
 def edit_session_chairs(request, session_id):
     _require_permissions(request.user, 'change_session')
     session = get_object_or_404(Session, pk=session_id, kind=Session.Kind.ORAL)
     form = SessionChairsForm(request.POST or None, session=session)
     if request.method == 'POST' and form.is_valid():
         with transaction.atomic():
-            for index, category in enumerate(form.categories):
-                name = form.cleaned_data[f'chair_{index}'].strip()
-                if name:
-                    SessionChair.objects.update_or_create(session=session, category=category, defaults={'name': name})
-                else:
-                    SessionChair.objects.filter(session=session, category=category).delete()
+            form.save(session)
         return JsonResponse({'ok': True})
     return render(request, 'program/_session_chairs_form.html', {'form': form, 'session': session},
                   status=400 if request.method == 'POST' else 200)

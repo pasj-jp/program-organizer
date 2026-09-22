@@ -373,6 +373,82 @@ class OrganizerTests(TestCase):
         self.first.refresh_from_db()
         self.assertEqual(self.first.confirmed_category, '')
 
+    def test_session_popup_edits_and_renumbers_withdrawn_talk(self):
+        self.move(self.first, self.session.pk, [self.first.pk])
+        self.first.refresh_from_db()
+        self.first.status = Presentation.Status.WITHDRAWN
+        self.first.save()
+        url = reverse('edit_session', args=[self.session.pk])
+        self.assertContains(self.client.get(url), 'session-edit-form')
+        response = self.client.post(url, {
+            'session-name': '変更後', 'session-code': 'NEW', 'session-kind': 'other',
+            'session-start_time': '14:00', 'session-minutes_per_presentation': '20',
+            'session-annual_meeting': '999999',
+        })
+        self.assertEqual(response.status_code, 200)
+        self.session.refresh_from_db()
+        self.first.refresh_from_db()
+        self.assertEqual(self.session.name, '変更後')
+        self.assertEqual(self.session.end_time, time(14, 20))
+        self.assertEqual(self.session.annual_meeting, self.meeting)
+        self.assertEqual(self.first.program_number, 'NEW01')
+        self.assertEqual(self.first.status, Presentation.Status.WITHDRAWN)
+
+    def test_session_popup_rejects_invalid_date_and_number_conflict(self):
+        self.move(self.first, self.session.pk, [self.first.pk])
+        self.second.program_number = 'NEW01'
+        self.second.save()
+        url = reverse('edit_session', args=[self.session.pk])
+        data = {'session-name': '変更後', 'session-code': 'NEW', 'session-kind': 'other',
+                'session-start_time': '10:00', 'session-minutes_per_presentation': '20'}
+        response = self.client.post(url, data)
+        self.assertContains(response, '重複', status_code=400)
+        self.session.refresh_from_db()
+        self.assertEqual(self.session.code, 'FRO')
+        self.assertEqual(self.session.name, '加速器')
+        data.update({'session-code': 'FRO', 'session-date': '2027-01-01'})
+        self.assertEqual(self.client.post(url, data).status_code, 400)
+        self.session.refresh_from_db()
+        self.assertEqual(self.session.name, '加速器')
+
+    def test_session_popup_requires_change_permission(self):
+        self.user.user_permissions.remove(Permission.objects.get(codename='change_session', content_type__app_label='program'))
+        url = reverse('edit_session', args=[self.session.pk])
+        self.assertEqual(self.client.get(url).status_code, 403)
+        self.assertEqual(self.client.post(url, {}).status_code, 403)
+        board = self.client.get(reverse('organize', args=[2026]))
+        self.assertNotContains(board, 'class="edit-session ')
+        self.client.logout()
+        self.assertEqual(self.client.get(url).status_code, 302)
+
+    def test_session_popup_saves_chairs_and_session_together(self):
+        self.session.kind = Session.Kind.ORAL
+        self.session.talk_limit = 2
+        self.session.date = self.meeting.start_date
+        self.session.save()
+        SessionChair.objects.create(session=self.session, category='ビーム', name='旧座長')
+        url = reverse('edit_session', args=[self.session.pk])
+        self.assertContains(self.client.get(url), 'name="chairs-chair_0"')
+        data = {'session-name': '更新した口頭セッション', 'session-code': 'NEW',
+                'session-kind': 'oral', 'session-date': '2026-09-19',
+                'session-start_time': '10:00', 'session-minutes_per_presentation': '20',
+                'session-talk_limit': '2', 'chairs-chair_0': '新座長'}
+        invalid = dict(data, **{'chairs-chair_0': '長' * 201})
+        self.assertEqual(self.client.post(url, invalid).status_code, 400)
+        self.session.refresh_from_db()
+        self.assertEqual(self.session.name, '加速器')
+        self.assertEqual(self.session.chairs.get().name, '旧座長')
+        invalid = dict(data, **{'session-talk_limit': '0'})
+        self.assertContains(self.client.post(url, invalid), '新座長', status_code=400)
+        self.assertEqual(self.session.chairs.get().name, '旧座長')
+        self.assertEqual(self.client.post(url, data).status_code, 200)
+        self.session.refresh_from_db()
+        self.assertEqual(self.session.name, '更新した口頭セッション')
+        self.assertEqual(self.session.chairs.get().name, '新座長')
+        data['chairs-chair_0'] = ''
+        self.assertEqual(self.client.post(url, data).status_code, 200)
+        self.assertFalse(self.session.chairs.exists())
+
     def test_oral_session_has_chair_for_each_confirmed_category(self):
         oral = Session.objects.create(name='口頭', kind=Session.Kind.ORAL, talk_limit=2,
             annual_meeting=self.meeting, date=date(2026, 9, 19), start_time=time(11, 0))
@@ -387,7 +463,7 @@ class OrganizerTests(TestCase):
         self.assertEqual(self.client.post(url, {'chair_0': '山田', 'chair_1': '佐藤'}).status_code, 200)
         self.assertEqual(dict(oral.chairs.values_list('category', 'name')),
                          {'ビーム物理': '山田', '加速器技術': '佐藤'})
-        self.assertContains(self.client.get(reverse('organize', args=[2026])), '座長を編集')
+        self.assertNotContains(self.client.get(reverse('organize', args=[2026])), 'class="edit-chairs')
         self.assertContains(self.client.get(reverse('timetable', args=[2026])), '座長（ビーム物理）: 山田')
         self.assertEqual(self.client.get(reverse('edit_session_chairs', args=[self.session.pk])).status_code, 404)
 
@@ -628,7 +704,7 @@ class OrganizerTests(TestCase):
         self.assertContains(response, '第2希望: ビーム物理')
         self.assertContains(response, 'class="edit-presentation"')
         self.assertNotContains(response, reverse('admin:program_presentation_change', args=[self.first.pk]))
-        self.assertContains(response, 'src="/static/program/organize.js?v=7"')
+        self.assertContains(response, 'src="/static/program/organize.js?v=9"')
         self.assertContains(response, 'data-move-url="/organize/move/"')
 
     def test_presentation_edit_popup_saves_and_validates(self):
