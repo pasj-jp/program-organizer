@@ -1,5 +1,6 @@
 import json
 from io import BytesIO
+from unittest.mock import patch
 from datetime import date, time
 from openpyxl import Workbook, load_workbook
 from django.contrib.auth import get_user_model
@@ -49,7 +50,8 @@ class OrganizerTests(TestCase):
         self.first.authors.create(position=1, is_presenter=True, family_name='山田', given_name='太郎')
         self.first.status = Presentation.Status.WITHDRAWN
         self.first.save(update_fields=['status'])
-        response = self.client.get(reverse('export_program_json', args=[2026]))
+        with patch('program.program_excel.Workbook', side_effect=AssertionError('JSON must not create XLSX')):
+            response = self.client.get(reverse('export_program_json', args=[2026]))
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response['Content-Disposition'], 'attachment; filename="pasj2026_program.json"')
         self.assertEqual(response['Content-Type'], 'application/json; charset=utf-8')
@@ -181,9 +183,18 @@ class OrganizerTests(TestCase):
         self.assertEqual(len(rows), 6)
         self.assertEqual(rows[1][38], 'エントリーする [Entry]')
         self.assertEqual(len(read_program(BytesIO(exported.content), self.meeting)), 4)
-        from .pasj_program_to_json import convert_row, read_xlsx
+        from .program_json import convert_row
         json_export = self.client.get(reverse('export_program_json', args=[self.meeting.year]))
-        self.assertEqual(json_export.json(), [convert_row(row) for row in read_xlsx(BytesIO(exported.content))])
+        expected = []
+        for values in rows[1:]:
+            record = {}
+            for header, value in zip(rows[0], values):
+                record.setdefault(header, value)
+            expected.append(convert_row(record))
+        self.assertEqual(json_export.json(), expected)
+        facility = next(record for record in json_export.json() if record['submission_id'] == 'F1')
+        self.assertEqual(facility['date'], '9月19日・9月20日')
+        self.assertEqual(facility['time'], '12:00-13:00/12:00-13:00')
         reordered = Workbook()
         order = list(range(len(HEADERS)))
         order[2], order[33] = order[33], order[2]
