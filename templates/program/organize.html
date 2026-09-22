@@ -20,6 +20,7 @@
       <legend>ファイル形式</legend>
       <div><label><input type="radio" name="format" value="xlsx" data-download-url="{% url 'export_program_excel' meeting.year %}" checked> XLSX（{{ meeting.abbreviation|lower }}_program.xlsx）</label></div>
       <div><label><input type="radio" name="format" value="json" data-download-url="{% url 'export_program_json' meeting.year %}"> JSON（{{ meeting.abbreviation|lower }}_program.json）</label></div>
+      <div><label><input type="radio" name="format" value="pdf" data-download-url="{% url 'export_program_pdf' meeting.year %}"> PDF（{{ meeting.abbreviation|lower }}_program.pdf）</label></div>
     </fieldset>
     <div class="dialog-actions"><button type="button" class="dialog-cancel">キャンセル</button><button type="submit">ダウンロード</button></div>
   </form>

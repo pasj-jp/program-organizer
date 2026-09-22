@@ -18,6 +18,7 @@ urlpatterns = [
     path('organize/<int:year>/import-abstract/', views.import_abstract_excel, name='import_abstract_excel'),
     path('organize/<int:year>/export-program/', views.export_program_excel, name='export_program_excel'),
     path('organize/<int:year>/export-program-json/', views.export_program_json, name='export_program_json'),
+    path('organize/<int:year>/export-program-pdf/', views.export_program_pdf, name='export_program_pdf'),
     path('organize/legacy-sessions/', views.organize_legacy, name='organize_legacy'),
     path('organize/<int:year>/', views.organize, name='organize'),
     path('organize/<int:year>/publication/', views.set_timetable_publication, name='set_timetable_publication'),

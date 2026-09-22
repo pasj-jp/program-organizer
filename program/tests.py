@@ -83,6 +83,83 @@ class OrganizerTests(TestCase):
         reader.user_permissions.add(Permission.objects.get(content_type__app_label='program', codename='view_session'))
         self.assertEqual(self.client.get(url).status_code, 200)
 
+    def test_program_pdf_html(self):
+        from .program_pdf import build_program_html, ProgramPDFError
+        with self.assertRaises(ProgramPDFError):
+            build_program_html(self.meeting)
+        self.session.date = self.meeting.start_date
+        self.session.save()
+        self.move(self.first, self.session.pk, [self.first.pk])
+        self.first.refresh_from_db()
+        self.first.title = '電子<sup>2</sup><img src="https://example.com/x">'
+        self.first.confirmed_category = 'ビーム'
+        self.first.status = Presentation.Status.WITHDRAWN
+        self.first.save()
+        self.first.authors.create(position=1, is_presenter=True, family_name='山田',
+                                  given_name='太郎', family_name_en='Yamada', affiliation_en='KEK')
+        SessionChair.objects.create(session=self.session, category='ビーム', name='座長氏名')
+        document = build_program_html(self.meeting)
+        for expected in ('電子<sup>2</sup>', '&lt;img', 'FRO01', '取り消し',
+                         'withdrawn', 'ビーム', '座長氏名', '山田 太郎', 'KEK', '9月19日（土）'):
+            self.assertIn(expected, document)
+        self.assertNotIn('<img', document)
+        self.assertNotIn(self.second.title, document)
+        other = AnnualMeeting.objects.create(name='翌年', abbreviation='PASJ2027',
+            start_date=date(2027, 9, 19), end_date=date(2027, 9, 21))
+        with self.assertRaises(ProgramPDFError):
+            build_program_html(other)
+
+    def test_program_pdf_download_and_permissions(self):
+        from .program_pdf import ProgramPDFError
+        url = reverse('export_program_pdf', args=[2026])
+        with patch('program.views.build_program_pdf', return_value=b'%PDF-1.7\n') as build:
+            response = self.client.get(url)
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response['Content-Type'], 'application/pdf')
+            self.assertEqual(response['Content-Disposition'], 'attachment; filename="pasj2026_program.pdf"')
+            build.assert_called_once_with(self.meeting)
+            self.assertEqual(self.client.post(url).status_code, 405)
+            self.assertEqual(self.client.get(reverse('export_program_pdf', args=[2030])).status_code, 404)
+            self.client.logout()
+            self.assertEqual(self.client.get(url).status_code, 302)
+            reader = get_user_model().objects.create_user('pdf-reader')
+            self.client.force_login(reader)
+            self.assertEqual(self.client.get(url).status_code, 403)
+            reader.user_permissions.add(Permission.objects.get(content_type__app_label='program', codename='view_presentation'))
+            self.assertEqual(self.client.get(url).status_code, 403)
+            reader.user_permissions.add(Permission.objects.get(content_type__app_label='program', codename='view_session'))
+            self.assertEqual(self.client.get(url).status_code, 200)
+        with patch('program.views.build_program_pdf', side_effect=ProgramPDFError('PDF生成エラー')):
+            response = self.client.get(url, follow=True)
+            self.assertContains(response, 'PDF生成エラー')
+
+    def test_program_pdf_process_and_cleanup(self):
+        import subprocess
+        from pathlib import Path
+        from .program_pdf import export_program_pdf, ProgramPDFError
+        self.move(self.first, self.session.pk, [self.first.pk])
+        directories = []
+
+        def render(command, **kwargs):
+            directory = kwargs['cwd']
+            directories.append(directory)
+            self.assertTrue((directory / 'program.html').exists())
+            self.assertTrue((directory / 'program.css').exists())
+            self.assertEqual(command[0], '/usr/local/bin/vivliostyle')
+            (directory / 'program.pdf').write_bytes(b'%PDF-1.7\n')
+
+        with self.settings(VIVLIOSTYLE_CLI='/usr/local/bin/vivliostyle', PROGRAM_PDF_TIMEOUT=10):
+            with patch('program.program_pdf.subprocess.run', side_effect=render):
+                self.assertEqual(export_program_pdf(self.meeting), b'%PDF-1.7\n')
+                self.assertEqual(export_program_pdf(self.meeting), b'%PDF-1.7\n')
+        self.assertNotEqual(directories[0], directories[1])
+        self.assertTrue(all(not Path(directory).exists() for directory in directories))
+        for error in (FileNotFoundError(), subprocess.CalledProcessError(1, 'vivliostyle'),
+                      subprocess.TimeoutExpired('vivliostyle', 10)):
+            with self.subTest(error=error), patch('program.program_pdf.subprocess.run', side_effect=error):
+                with self.assertRaises(ProgramPDFError):
+                    export_program_pdf(self.meeting)
+
     def test_abstract_import_can_reuse_submission_number_in_another_meeting(self):
         other = AnnualMeeting.objects.create(name='翌年会', abbreviation='PASJ2027',
             start_date=date(2027, 9, 19), end_date=date(2027, 9, 21), location='大阪')
@@ -195,6 +272,10 @@ class OrganizerTests(TestCase):
         facility = next(record for record in json_export.json() if record['submission_id'] == 'F1')
         self.assertEqual(facility['date'], '9月19日・9月20日')
         self.assertEqual(facility['time'], '12:00-13:00/12:00-13:00')
+        from .program_pdf import build_program_html
+        pdf_html = build_program_html(self.meeting)
+        self.assertIn('9月19日（土）・9月20日（日）', pdf_html)
+        self.assertIn('12:00-13:00/12:00-13:00', pdf_html)
         reordered = Workbook()
         order = list(range(len(HEADERS)))
         order[2], order[33] = order[33], order[2]

@@ -17,6 +17,7 @@ from .forms import ProceedingsUploadForm
 from .timetable import build_timetable
 from .program_excel import export_program, import_program
 from .program_json import export_program_json as build_program_json
+from .program_pdf import ProgramPDFError, export_program_pdf as build_program_pdf
 from .abstract_excel import import_abstracts
 from .organizing import (OrganizingError, move_presentation as move_presentation_service,
                          move_session, reorder_sessions as reorder_sessions_service)
@@ -209,6 +210,22 @@ def export_program_json(request, year):
     meeting = get_object_or_404(AnnualMeeting, start_date__year=year)
     response = HttpResponse(build_program_json(meeting), content_type='application/json; charset=utf-8')
     response['Content-Disposition'] = f'attachment; filename="{meeting.abbreviation.lower()}_program.json"'
+    return response
+
+
+@login_required
+@require_http_methods(['GET'])
+@never_cache
+def export_program_pdf(request, year):
+    _require_board_view_permission(request.user)
+    meeting = get_object_or_404(AnnualMeeting, start_date__year=year)
+    try:
+        content = build_program_pdf(meeting)
+    except ProgramPDFError as exc:
+        messages.error(request, str(exc))
+        return redirect('organize', year=year)
+    response = HttpResponse(content, content_type='application/pdf')
+    response['Content-Disposition'] = f'attachment; filename="{meeting.abbreviation.lower()}_program.pdf"'
     return response
 
 
