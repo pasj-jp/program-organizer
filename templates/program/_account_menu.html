@@ -1,0 +1,6 @@
+{% if request.user.is_authenticated %}
+<div class="account-menu" aria-label="アカウント">
+  <span class="account-name">ユーザー：{{ request.user.get_username }}</span>
+  <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button type="submit">ログアウト</button></form>
+</div>
+{% endif %}

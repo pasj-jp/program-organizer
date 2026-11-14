@@ -218,3 +218,26 @@ PDFを複数選択するか、アップロード欄へまとめてドラッグ�
 本番運用時は `DJANGO_SECRET_KEY`、`DJANGO_DEBUG=0`、`DJANGO_ALLOWED_HOSTS` を設定してください。Excelには個人情報が含まれるため、管理画面のアカウントとファイルの保管に注意してください。
 
 セッション編成画面では、セッション情報の横の鉛筆アイコンからポップアップで編集できます。口頭発表では同じポップアップ内でカテゴリーごとの座長も編集し、まとめて保存できます。セッションの変更権限が必要です。
+
+## ログイン・ログアウト・パスワード再設定
+
+トップページの「ログイン」から `/login/` に進みます。編成画面とプロシーディングス画面（年会一覧を含む）のヘッダーにはユーザー名と「ログアウト」ボタンを表示します。ログアウト後はトップページに戻ります。
+
+パスワードを忘れた場合は、ログイン画面の「パスワードを忘れた方はこちら」から登録メールアドレスを入力します。メール内のリンクから新しいパスワードを設定し、再度ログインしてください。リンクは1時間有効で、変更後は再利用できません。事前に管理画面の「ユーザー」で各利用者のメールアドレスを登録してください。未登録のアドレスや無効なアカウントには送信せず、画面上は同じ案内を表示します。
+
+開発時（`DJANGO_DEBUG=1`）の初期設定ではメールを実送信せず、`runserver` のターミナルに本文と再設定URLを出力します。実際にメールを送る場合は、起動前にSMTP設定を環境変数として設定してください。
+
+```bash
+export DJANGO_EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
+export DJANGO_EMAIL_HOST=smtp.example.com
+export DJANGO_EMAIL_PORT=587
+export DJANGO_EMAIL_HOST_USER=your-smtp-user
+export DJANGO_EMAIL_HOST_PASSWORD='your-smtp-password'
+export DJANGO_EMAIL_USE_TLS=1
+export DJANGO_EMAIL_USE_SSL=0
+export DJANGO_DEFAULT_FROM_EMAIL='プログラム編成システム <noreply@example.com>'
+```
+
+SMTPサービスから指定された値に置き換えてください。SSL接続（通常465番ポート）を使用する場合は `DJANGO_EMAIL_USE_TLS=0` と `DJANGO_EMAIL_USE_SSL=1` にします。`.env` ファイルの自動読み込みはありません。デプロイ環境の環境変数設定等を使用してください。
+
+本番環境では `DJANGO_DEBUG=0`、固有の `DJANGO_SECRET_KEY`、公開ホスト名を列挙した `DJANGO_ALLOWED_HOSTS` とSMTP設定を指定します。再設定URLはアクセスしたホスト名・HTTP/HTTPSから生成するため、利用者がアクセスできる公開HTTPS URLから申請してください。リバースプロキシを使用する場合は、Djangoが元のHTTPS接続を正しく判定できるようにプロキシ構成に合わせて設定してください。

@@ -25,3 +25,16 @@ LOGIN_REDIRECT_URL = '/organize/'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 VIVLIOSTYLE_CLI = os.environ.get('VIVLIOSTYLE_CLI', 'vivliostyle')
 PROGRAM_PDF_TIMEOUT = int(os.environ.get('PROGRAM_PDF_TIMEOUT', '300'))
+
+# Development prints reset emails to the terminal; production uses SMTP.
+EMAIL_BACKEND = os.environ.get('DJANGO_EMAIL_BACKEND',
+    'django.core.mail.backends.console.EmailBackend' if DEBUG else 'django.core.mail.backends.smtp.EmailBackend')
+EMAIL_HOST = os.environ.get('DJANGO_EMAIL_HOST', 'localhost')
+EMAIL_PORT = int(os.environ.get('DJANGO_EMAIL_PORT', '587'))
+EMAIL_HOST_USER = os.environ.get('DJANGO_EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.environ.get('DJANGO_EMAIL_HOST_PASSWORD', '')
+EMAIL_USE_TLS = os.environ.get('DJANGO_EMAIL_USE_TLS', '1') == '1'
+EMAIL_USE_SSL = os.environ.get('DJANGO_EMAIL_USE_SSL', '0') == '1'
+EMAIL_TIMEOUT = 10
+DEFAULT_FROM_EMAIL = os.environ.get('DJANGO_DEFAULT_FROM_EMAIL', 'webmaster@localhost')
+PASSWORD_RESET_TIMEOUT = 60 * 60

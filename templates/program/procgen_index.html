@@ -1,7 +1,8 @@
+{% load static %}
 <!doctype html>
 <html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>プロシーディングス・年会選択</title>
-<style>body{font-family:system-ui,sans-serif;background:#f4f6f8;color:#17212b;margin:0}header{background:#17324d;color:white;padding:1rem 1.5rem}h1{font-size:1.4rem;margin:0}main{padding:1.5rem;max-width:800px}.meeting{display:block;background:white;border:1px solid #cbd5df;border-radius:8px;padding:1rem;margin-bottom:.75rem;color:#17324d;text-decoration:none}.meeting small{display:block;margin-top:.4rem}</style></head><body>
-<header><h1>プロシーディングス・年会選択</h1></header><main>
+<style>body{font-family:system-ui,sans-serif;background:#f4f6f8;color:#17212b;margin:0}header{background:#17324d;color:white;padding:1rem 1.5rem}h1{font-size:1.4rem;margin:0}main{padding:1.5rem;max-width:800px}.meeting{display:block;background:white;border:1px solid #cbd5df;border-radius:8px;padding:1rem;margin-bottom:.75rem;color:#17324d;text-decoration:none}.meeting small{display:block;margin-top:.4rem}</style><link rel="stylesheet" href="{% static 'program/account.css' %}"></head><body>
+<header><h1>プロシーディングス・年会選択</h1>{% include 'program/_account_menu.html' %}</header><main>
 {% for meeting in meetings %}<a class="meeting" href="{% url 'procgen' meeting.year %}"><strong>{{ meeting.name }}（{{ meeting.abbreviation }}）</strong><small>{{ meeting.start_date }}〜{{ meeting.end_date }}　{{ meeting.location }}</small></a>{% empty %}<p>年会情報がありません。管理画面で年会を作成してください。</p>{% endfor %}
 <a href="{% url 'organize_index' %}">編成画面へ</a>
 </main></body></html>

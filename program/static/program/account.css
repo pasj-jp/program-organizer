@@ -1,0 +1,8 @@
+header{display:flex;align-items:center;flex-wrap:wrap;gap:1rem}
+header .account-menu{display:flex;align-items:center;flex-wrap:wrap;gap:.75rem;margin-left:auto;font-size:.9rem}
+header .account-name{overflow-wrap:anywhere}
+header .account-menu form{margin:0;padding:0;border:0;background:none;box-shadow:none}
+header .account-menu button{font:inherit;font-weight:700;background:#fff;color:#17324d;border:1px solid #cbd5df;border-radius:6px;padding:.5rem .8rem;cursor:pointer}
+header .account-menu button:hover{background:#dcecf7}
+header .account-menu button:focus-visible{outline:3px solid #63afd4;outline-offset:3px}
+@media print{header .account-menu{display:none}}

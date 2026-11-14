@@ -4,8 +4,8 @@
 <style>
 body{font-family:system-ui,sans-serif;background:#f4f6f8;color:#17212b;margin:0}header{background:#17324d;color:white;padding:1rem 1.5rem}h1{font-size:1.4rem;margin:0}main{padding:1.5rem;max-width:1400px;margin:auto}nav{margin-bottom:1rem}a{color:#185184}form{background:white;padding:1rem;border:1px solid #cbd5df;border-radius:8px;margin:1rem 0}button{background:#17324d;color:white;border:0;border-radius:5px;padding:.6rem 1rem;cursor:pointer}input{max-width:100%}.table-wrap{overflow-x:auto}table{border-collapse:collapse;width:100%;background:white}caption{text-align:left;padding:.75rem 0}th,td{border-bottom:1px solid #cbd5df;padding:.8rem;text-align:left}th{background:#e8eef5}th:first-child,td:first-child,td:last-child{white-space:nowrap}.dot{display:inline-block;width:.8rem;height:.8rem;border-radius:50%;margin-right:.4rem;background:#8793a1}.dot.uploaded{background:#19833b}.withdrawn .talk-info{text-decoration:line-through;color:#65717d}.errorlist{color:#a21c22}.success{color:#146c2e}
 .drop-zone{border:2px dashed #8793a1;border-radius:8px;padding:1.5rem;margin:1rem 0}.drop-zone.drag-over{border-color:#185184;background:#e8eef5}button:disabled{opacity:.6;cursor:wait}
-</style></head><body>
-<header><h1>{{ meeting.name }}・プロシーディングス</h1></header><main>
+</style><link rel="stylesheet" href="{% static 'program/account.css' %}"></head><body>
+<header><h1>{{ meeting.name }}・プロシーディングス</h1>{% include 'program/_account_menu.html' %}</header><main>
 <nav><a href="{% url 'procgen_index' %}">年会選択</a> / <a href="{% url 'organize' meeting.year %}">セッション編成</a></nav>
 {% for message in messages %}<p class="{{ message.tags }}" role="status">{{ message }}</p>{% endfor %}
 {% if can_upload %}<form id="proceedings-upload" method="post" enctype="multipart/form-data">

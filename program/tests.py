@@ -1053,7 +1053,7 @@ class ProceedingsTests(TestCase):
         self.user.user_permissions.add(Permission.objects.get(
             content_type__app_label='program', codename='view_presentation'))
         self.assertEqual(self.client.get(self.url).status_code, 200)
-        self.assertNotContains(self.client.get(self.url), '<form')
+        self.assertNotContains(self.client.get(self.url), 'id="proceedings-upload"')
         self.assertEqual(self.upload().status_code, 403)
         self.client.logout()
         self.assertEqual(self.client.get(self.url).status_code, 302)
@@ -1171,3 +1171,77 @@ class TimetablePublicationTests(TestCase):
         self.client.post(reverse('set_timetable_publication', args=[2026]), {'published': 'false'})
         other.refresh_from_db()
         self.assertTrue(other.timetable_published)
+
+
+class AccountTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_superuser(
+            'account-editor', 'editor@example.com', 'original-password-834')
+        self.meeting = AnnualMeeting.objects.create(name='認証テスト年会', abbreviation='AUTH',
+            start_date=date(2026, 9, 19), end_date=date(2026, 9, 21), location='東京')
+
+    def test_account_menu_and_post_only_logout(self):
+        from django.test import Client
+        client = Client(enforce_csrf_checks=True)
+        client.force_login(self.user)
+        for url in ['/organize/', '/organize/2026/', '/organize/2026/?tab=timetable',
+                    '/organize/legacy-sessions/', '/procgen/', '/procgen/2026/']:
+            with self.subTest(url=url):
+                response = client.get(url)
+                self.assertContains(response, 'ユーザー：account-editor')
+                self.assertContains(response, 'action="/logout/"')
+        self.assertEqual(client.get(reverse('logout')).status_code, 405)
+        self.assertEqual(client.post(reverse('logout')).status_code, 403)
+        self.assertRedirects(client.post(reverse('logout'), {
+            'csrfmiddlewaretoken': client.cookies['csrftoken'].value}), '/')
+        self.assertNotIn('_auth_user_id', client.session)
+        self.assertRedirects(client.get('/organize/'), '/login/?next=/organize/')
+
+    def reset_link(self):
+        import re
+        from django.core import mail
+        response = self.client.post(reverse('password_reset'), {'email': self.user.email})
+        self.assertRedirects(response, reverse('password_reset_done'))
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, [self.user.email])
+        return re.search(r'http://testserver(/reset/\S+)', mail.outbox[0].body).group(1)
+
+    def test_reset_email_change_login_and_single_use(self):
+        self.assertContains(self.client.get(reverse('login')), reverse('password_reset'))
+        link = self.reset_link()
+        confirmation = self.client.get(link)
+        self.assertEqual(confirmation.status_code, 302)
+        form_url = confirmation.url
+        self.assertContains(self.client.get(form_url), '新しいパスワードを設定')
+        invalid = self.client.post(form_url, {'new_password1': 'short', 'new_password2': 'different'})
+        self.assertTrue(invalid.context['form'].errors)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password('original-password-834'))
+        response = self.client.post(form_url, {
+            'new_password1': 'replacement-password-752!', 'new_password2': 'replacement-password-752!'})
+        self.assertRedirects(response, reverse('password_reset_complete'))
+        self.assertFalse(self.client.login(username=self.user.username, password='original-password-834'))
+        self.assertTrue(self.client.login(username=self.user.username, password='replacement-password-752!'))
+        self.client.logout()
+        self.assertContains(self.client.get(link), 'リンクが無効です')
+
+    def test_unknown_and_inactive_email_do_not_send(self):
+        from django.core import mail
+        self.user.is_active = False
+        self.user.save()
+        for email in ['unknown@example.com', self.user.email]:
+            response = self.client.post(reverse('password_reset'), {'email': email})
+            self.assertRedirects(response, reverse('password_reset_done'))
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_expired_and_invalid_links(self):
+        from django.contrib.auth.tokens import default_token_generator
+        link = self.reset_link()
+        with patch.object(default_token_generator, '_num_seconds', return_value=10**12):
+            self.assertContains(self.client.get(link), 'リンクが無効です')
+        self.assertContains(self.client.get('/reset/invalid/invalid/'), 'リンクが無効です')
+
+    def test_reset_request_requires_csrf(self):
+        from django.test import Client
+        client = Client(enforce_csrf_checks=True)
+        self.assertEqual(client.post(reverse('password_reset'), {'email': self.user.email}).status_code, 403)

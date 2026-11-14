@@ -2,8 +2,8 @@
 <!doctype html>
 <html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>セッション編成</title>
-<link rel="stylesheet" href="{% static 'program/organize.css' %}?v=10"><link rel="stylesheet" href="{% static 'program/publication.css' %}?v=2"></head><body>
-<header><h1>{% if legacy %}年会未設定{% else %}{{ meeting.name }}{% endif %} 編成ページ</h1><a href="{% url 'organize_index' %}">年会一覧</a>{% if meeting.timetable_published %}<a href="{% url 'timetable' meeting.year %}">公開ページ</a>{% endif %}{% if request.user.is_staff %}<a href="{% url 'admin:index' %}">管理画面</a>{% endif %}{% if meeting %}{% include 'program/_publication_toggle.html' %}{% endif %}</header>
+<link rel="stylesheet" href="{% static 'program/organize.css' %}?v=10"><link rel="stylesheet" href="{% static 'program/publication.css' %}?v=2"><link rel="stylesheet" href="{% static 'program/account.css' %}"></head><body>
+<header><h1>{% if legacy %}年会未設定{% else %}{{ meeting.name }}{% endif %} 編成ページ</h1><a href="{% url 'organize_index' %}">年会一覧</a>{% if meeting.timetable_published %}<a href="{% url 'timetable' meeting.year %}">公開ページ</a>{% endif %}{% if request.user.is_staff %}<a href="{% url 'admin:index' %}">管理画面</a>{% endif %}<a href="{% if meeting %}{% url 'procgen' meeting.year %}{% else %}{% url 'procgen_index' %}{% endif %}">プロシーディングス</a>{% if meeting %}{% include 'program/_publication_toggle.html' %}{% endif %}{% include 'program/_account_menu.html' %}</header>
 <main>
 {% if meeting %}<nav class="page-tabs" aria-label="編成画面"><a href="{% url 'organize' meeting.year %}" aria-current="page">セッション編成</a><a href="{% url 'organize' meeting.year %}?tab=timetable">タイムテーブル</a></nav>{% endif %}
 {% for message in messages %}<p class="message">{{ message }}</p>{% endfor %}
