@@ -15,7 +15,7 @@ from .models import AnnualMeeting, Presentation, Session
 from .forms import AbstractExcelImportForm, BoardPresentationForm, ProgramExcelImportForm, SessionChairsForm, SessionForm
 from .forms import ProceedingsUploadForm, ProceedingsBuildForm
 from .proceedings import ProceedingsError, build_proceedings, header_defaults
-from .proceedings_publish import CODE_PATTERN, published_directory
+from .proceedings_publish import CODE_PATTERN, published_directory, download_archive
 from .timetable import build_timetable
 from .program_excel import export_program, import_program
 from .program_json import export_program_json as build_program_json
@@ -58,8 +58,9 @@ def procgen(request, year):
                 except ProceedingsError as exc:
                     build_form.add_error(None, str(exc))
                 else:
-                    return FileResponse(archive, as_attachment=True,
-                        filename=f'proceedings-{year}.zip', content_type='application/zip')
+                    archive.close()
+                    messages.success(request, '加工済みPDFを生成・公開しました。ZIPはダウンロードボタンから取得できます。')
+                    return redirect('procgen', year=year)
         elif form.is_valid():
             for talk, upload in form.uploads:
                 old_name = talk.proceedings_file.name
@@ -78,8 +79,22 @@ def procgen(request, year):
     return render(request, 'program/procgen.html', {
         'meeting': meeting, 'form': form, 'build_form': build_form,
         'presentations': presentations,
+        'has_published_proceedings': (published_directory(year) / 'proceedings_list.json').is_file(),
         'can_upload': request.user.has_perm('program.change_presentation'),
     })
+
+
+@login_required
+@require_http_methods(['GET', 'HEAD'])
+def proceedings_zip(request, year):
+    _require_permissions(request.user, 'view_presentation')
+    get_object_or_404(AnnualMeeting, start_date__year=year)
+    try:
+        archive = download_archive(year)
+    except (FileNotFoundError, NotADirectoryError):
+        raise Http404
+    return FileResponse(archive, as_attachment=True, filename=f'proceedings-{year}.zip',
+                        content_type='application/zip')
 
 
 @login_required

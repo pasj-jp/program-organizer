@@ -3,9 +3,9 @@ import os
 import re
 import shutil
 from pathlib import Path
-from tempfile import mkdtemp
+from tempfile import mkdtemp, TemporaryFile
 from uuid import uuid4
-from zipfile import ZipFile
+from zipfile import ZipFile, ZIP_DEFLATED
 
 from django.conf import settings
 
@@ -38,3 +38,21 @@ def publish_archive(year, archive):
         raise
     finally:
         archive.seek(0)
+
+
+def download_archive(year):
+    # Resolve once so a concurrent publication cannot mix generations in the ZIP.
+    directory = published_directory(year).resolve(strict=True)
+    archive = TemporaryFile()
+    try:
+        with ZipFile(archive, 'w', ZIP_DEFLATED) as bundle:
+            for path in sorted(directory.iterdir()):
+                if re.fullmatch(CODE_PATTERN + r'\.pdf', path.name):
+                    bundle.write(path, f'{path.stem[:4]}/{path.name}')
+            for name in ('pdf_page_data.txt', 'proceedings_list.json'):
+                bundle.write(directory / name, name)
+        archive.seek(0)
+        return archive
+    except Exception:
+        archive.close()
+        raise

@@ -19,6 +19,7 @@ urlpatterns = [
         template_name='registration/password_reset_complete.html'), name='password_reset_complete'),
     path('organize/', views.organize_index, name='organize_index'),
     path('procgen/', views.procgen_index, name='procgen_index'),
+    path('procgen/<int:year>/download/', views.proceedings_zip, name='proceedings_zip'),
     path('procgen/<int:year>/', views.procgen, name='procgen'),
     path('procgen/<int:year>/<str:program_code>/pdf/', views.proceedings_pdf, name='proceedings_pdf'),
     path('organize/move/', views.move_presentation, name='move_presentation'),

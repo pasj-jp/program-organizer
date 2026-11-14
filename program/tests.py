@@ -1292,7 +1292,8 @@ class ProceedingsBuildTests(TestCase):
         self.save_pdf(first, original)
         self.save_pdf(self.talk, self.pdf_bytes())
         self.save_pdf(self.other_talk, self.pdf_bytes())
-        response = self.build()
+        self.assertRedirects(self.build(), self.url)
+        response = self.client.get(reverse('proceedings_zip', args=[2027]))
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response['Content-Type'], 'application/zip')
         with ZipFile(BytesIO(b''.join(response.streaming_content))) as archive:
@@ -1315,7 +1316,7 @@ class ProceedingsBuildTests(TestCase):
         with first.proceedings_file.open('rb') as saved:
             self.assertEqual(saved.read(), original)
         repeated = self.build()
-        self.assertEqual(repeated.status_code, 200)
+        self.assertRedirects(repeated, self.url)
         repeated.close()
 
     def test_invalid_pdf_and_form_return_errors_without_modifying_original(self):
@@ -1420,3 +1421,31 @@ class ProceedingsBuildTests(TestCase):
             response = self.build()
         self.assertContains(response, 'PDFを加工できません')
         self.assertEqual(path.read_bytes(), original)
+
+
+    def test_download_is_separate_and_uses_published_snapshot(self):
+        url = reverse('proceedings_zip', args=[2027])
+        self.assertEqual(self.client.get(url).status_code, 404)
+        self.assign(self.talk)
+        self.save_pdf(self.talk, self.pdf_bytes())
+        self.assertRedirects(self.build(), self.url)
+        self.assertContains(self.client.get(self.url), '生成済みZIPをダウンロード')
+        # Uploaded originals may change without changing the downloadable publication.
+        self.save_pdf(self.talk, b'%PDF-broken')
+        self.user.user_permissions.remove(Permission.objects.get(
+            content_type__app_label='program', codename='change_presentation'))
+        with patch('program.views.build_proceedings', side_effect=AssertionError('must not regenerate')):
+            response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        from io import BytesIO
+        from zipfile import ZipFile
+        with ZipFile(BytesIO(b''.join(response.streaming_content))) as bundle:
+            from program.proceedings_publish import published_directory
+            self.assertEqual(bundle.read('FRP0/FRP001.pdf'),
+                (published_directory(2027) / 'FRP001.pdf').read_bytes())
+        self.assertEqual(self.client.get(reverse('proceedings_zip', args=[2028])).status_code, 404)
+        self.assertEqual(self.client.post(url).status_code, 405)
+        self.user.user_permissions.clear()
+        self.assertEqual(self.client.get(url).status_code, 403)
+        self.client.logout()
+        self.assertEqual(self.client.get(url).status_code, 302)
