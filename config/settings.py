@@ -38,3 +38,6 @@ EMAIL_USE_SSL = os.environ.get('DJANGO_EMAIL_USE_SSL', '0') == '1'
 EMAIL_TIMEOUT = 10
 DEFAULT_FROM_EMAIL = os.environ.get('DJANGO_DEFAULT_FROM_EMAIL', 'webmaster@localhost')
 PASSWORD_RESET_TIMEOUT = 60 * 60
+
+# Optional Times New Roman files: times.ttf, timesi.ttf, timesbd.ttf.
+PROCEEDINGS_FONT_DIR = Path(os.environ.get('PROCEEDINGS_FONT_DIR', str(BASE_DIR / 'ttfonts' / 'TimesNewRomanPSMT')))

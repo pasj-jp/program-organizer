@@ -1245,3 +1245,121 @@ class AccountTests(TestCase):
         from django.test import Client
         client = Client(enforce_csrf_checks=True)
         self.assertEqual(client.post(reverse('password_reset'), {'email': self.user.email}).status_code, 403)
+
+
+class ProceedingsBuildTests(TestCase):
+    setUp = ProceedingsTests.setUp
+
+    def pdf_bytes(self, pages=1):
+        import fitz
+        with fitz.open() as doc:
+            for index in range(pages):
+                page = doc.new_page()
+                page.insert_text((60, 100), f'Original body {index}')
+            return doc.tobytes()
+
+    def assign(self, talk, order=1):
+        session, _ = Session.objects.get_or_create(annual_meeting=self.meeting, name='PDF session',
+            defaults={'date': self.meeting.start_date})
+        Presentation.objects.filter(pk=talk.pk).update(session=session, session_order=order)
+
+    def save_pdf(self, talk, data):
+        from django.core.files.base import ContentFile
+        talk.proceedings_file.save(f'{talk.program_number}.pdf', ContentFile(data), save=False)
+        Presentation.objects.filter(pk=talk.pk).update(proceedings_file=talk.proceedings_file.name)
+
+    def build(self, **kwargs):
+        options = dict(action='build', volume='PASJ2027', header1='Proceedings of PASJ',
+                       header2='September 1 - 3, 2027, Tokyo', start_page=10)
+        options.update(kwargs)
+        return self.client.post(self.url, options)
+
+    def test_layout_page_sequence_metadata_and_original_preserved(self):
+        import fitz
+        import json
+        from io import BytesIO
+        from zipfile import ZipFile
+        self.assign(self.talk, 2)
+        first = Presentation.objects.create(annual_meeting=self.meeting, submission_number='2',
+            program_number='ZZ01', title='First', title_en='English title',
+            author_text_en='Alice <sup>1</sup>', status='withdrawn')
+        missing = Presentation.objects.create(annual_meeting=self.meeting, submission_number='3',
+            program_number='ZZ02', title='Missing')
+        self.assign(first, 1)
+        self.assign(missing, 3)
+        original = self.pdf_bytes(2)
+        self.save_pdf(first, original)
+        self.save_pdf(self.talk, self.pdf_bytes())
+        self.save_pdf(self.other_talk, self.pdf_bytes())
+        response = self.build()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'], 'application/zip')
+        with ZipFile(BytesIO(b''.join(response.streaming_content))) as archive:
+            records = json.loads(archive.read('proceedings_list.json'))
+            self.assertEqual([(r['talk_id'], r['start_page']) for r in records],
+                             [('ZZ01', 10), ('FRP001', 12), ('ZZ02', None)])
+            self.assertEqual(archive.read('pdf_page_data.txt').decode(), '1\tZZ01\t10\n2\tFRP001\t12\n3\tZZ02\t\n')
+            with fitz.open(stream=archive.read('ZZ01/ZZ01.pdf'), filetype='pdf') as doc:
+                self.assertEqual(doc.page_count, 2)
+                self.assertEqual(tuple(doc[0].mediabox), (0, 0, 595, 791))
+                self.assertEqual(doc.metadata['title'], 'English title')
+                self.assertIn('Alice', doc.metadata['author'])
+                self.assertEqual(doc[0].get_label(), '10')
+                for i in range(2):
+                    text = doc[i].get_text()
+                    for expected in ['Original body', 'Proceedings of PASJ', 'September', 'PASJ2027  ZZ01', f'- {10+i} -']:
+                        self.assertIn(expected, text)
+                self.assertAlmostEqual(doc[0].search_for('PASJ2027  ZZ01')[0].x0, 58, places=1)
+                self.assertAlmostEqual(doc[1].search_for('PASJ2027  ZZ01')[0].x1, 537, places=1)
+        with first.proceedings_file.open('rb') as saved:
+            self.assertEqual(saved.read(), original)
+        repeated = self.build()
+        self.assertEqual(repeated.status_code, 200)
+        repeated.close()
+
+    def test_invalid_pdf_and_form_return_errors_without_modifying_original(self):
+        self.assign(self.talk)
+        self.save_pdf(self.talk, b'%PDF-broken')
+        with self.assertLogs('program.proceedings', level='WARNING'):
+            response = self.build()
+        self.assertContains(response, 'FRP001: PDFを加工できません')
+        with self.talk.proceedings_file.open('rb') as saved:
+            self.assertEqual(saved.read(), b'%PDF-broken')
+        for values in [{'start_page': 0}, {'header1': ''}, {'header1': '日本語'}, {'header1': 'W' * 150}]:
+            self.assertTrue(self.build(**values).context['build_form'].errors)
+        import fitz
+        with fitz.open(stream=self.pdf_bytes(), filetype='pdf') as doc:
+            encrypted = doc.tobytes(encryption=fitz.PDF_ENCRYPT_AES_256, owner_pw='owner', user_pw='secret')
+        self.save_pdf(self.talk, encrypted)
+        with self.assertLogs('program.proceedings', level='WARNING'):
+            self.assertContains(self.build(), 'PDFを加工できません')
+
+    def test_unassigned_and_permissions(self):
+        self.save_pdf(self.talk, self.pdf_bytes())
+        self.assertContains(self.build(), '採番・セッション割り当て済みの演題にPDFがありません')
+        self.user.user_permissions.remove(Permission.objects.get(
+            content_type__app_label='program', codename='change_presentation'))
+        self.assertEqual(self.build().status_code, 403)
+        self.assertNotContains(self.client.get(self.url), 'id="proceedings-build"')
+        self.client.logout()
+        self.assertEqual(self.build().status_code, 302)
+
+
+    def test_build_csrf_and_failure_after_valid_pdf(self):
+        from django.test import Client
+        csrf_client = Client(enforce_csrf_checks=True)
+        csrf_client.force_login(self.user)
+        self.assertEqual(csrf_client.post(self.url, {'action': 'build'}).status_code, 403)
+        self.assign(self.talk, 1)
+        original = self.pdf_bytes()
+        self.save_pdf(self.talk, original)
+        broken = Presentation.objects.create(annual_meeting=self.meeting, submission_number='2',
+            program_number='FRP002', title='Broken')
+        self.assign(broken, 2)
+        self.save_pdf(broken, b'%PDF-broken')
+        with self.assertLogs('program.proceedings', level='WARNING'):
+            response = self.build()
+        self.assertContains(response, 'FRP002: PDFを加工できません')
+        self.assertNotEqual(response['Content-Type'], 'application/zip')
+        with self.talk.proceedings_file.open('rb') as saved:
+            self.assertEqual(saved.read(), original)

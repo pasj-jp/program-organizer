@@ -19,6 +19,16 @@ body{font-family:system-ui,sans-serif;background:#f4f6f8;color:#17212b;margin:0}
 <p>選択後に「アップロード」を押してください。不正なファイルがある場合は、すべて保存せずエラーを表示します。</p>
 <button type="submit">アップロード</button>
 </form>{% endif %}
+{% if can_upload %}<form method="post" id="proceedings-build">
+{% csrf_token %}<input type="hidden" name="action" value="build">
+<h2>ヘッダー・フッター付きPDFの生成</h2>
+<p>巻名と2行のヘッダーを欧文で入力してください。講演番号と通しページ番号も付与します。</p>
+{{ build_form.as_p }}
+<p>採番・セッション割り当て済みの演題をプログラム出力順に処理します。取り消し演題もPDFがあれば含め、未アップロード演題にはページを割り当てません。未割り当て・未採番の演題は対象外です。</p>
+<p>元ビルダーと同じ595×791ptの用紙サイズに変更するため、原稿の端が切れる場合があります。生成後にレイアウトを確認してください。元PDFは変更しません。</p>
+<button type="submit">ヘッダー・フッターを付与してZIPをダウンロード</button>
+<p>ZIPには加工済みPDF、pdf_page_data.txt、proceedings_list.jsonが入ります。編成やPDFを変更した場合は再生成してください。</p>
+</form>{% endif %}
 <div class="table-wrap"><table>
 <caption>演題一覧（{{ presentations|length }}件）</caption>
 <thead><tr><th scope="col">プログラムコード</th><th scope="col">題目</th><th scope="col">講演者</th><th scope="col">Status</th></tr></thead>

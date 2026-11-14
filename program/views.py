@@ -13,7 +13,8 @@ from django.views.decorators.http import require_POST
 from django.views.decorators.cache import never_cache
 from .models import AnnualMeeting, Presentation, Session
 from .forms import AbstractExcelImportForm, BoardPresentationForm, ProgramExcelImportForm, SessionChairsForm, SessionForm
-from .forms import ProceedingsUploadForm
+from .forms import ProceedingsUploadForm, ProceedingsBuildForm
+from .proceedings import ProceedingsError, build_proceedings, header_defaults
 from .timetable import build_timetable
 from .program_excel import export_program, import_program
 from .program_json import export_program_json as build_program_json
@@ -43,11 +44,22 @@ def procgen_index(request):
 def procgen(request, year):
     _require_permissions(request.user, 'view_presentation')
     meeting = get_object_or_404(AnnualMeeting, start_date__year=year)
-    form = ProceedingsUploadForm(request.POST if request.method == 'POST' else None,
+    building = request.method == 'POST' and request.POST.get('action') == 'build'
+    build_form = ProceedingsBuildForm(request.POST if building else None, initial=header_defaults(meeting))
+    form = ProceedingsUploadForm(request.POST if request.method == 'POST' and not building else None,
                                  request.FILES or None, meeting=meeting)
     if request.method == 'POST':
         _require_permissions(request.user, 'change_presentation')
-        if form.is_valid():
+        if building:
+            if build_form.is_valid():
+                try:
+                    archive = build_proceedings(meeting, build_form.cleaned_data)
+                except ProceedingsError as exc:
+                    build_form.add_error(None, str(exc))
+                else:
+                    return FileResponse(archive, as_attachment=True,
+                        filename=f'proceedings-{year}.zip', content_type='application/zip')
+        elif form.is_valid():
             for talk, upload in form.uploads:
                 old_name = talk.proceedings_file.name
                 storage = talk.proceedings_file.storage
@@ -59,7 +71,7 @@ def procgen(request, year):
             messages.success(request, f'{len(form.uploads)}件のPDFをアップロードしました。')
             return redirect('procgen', year=year)
     return render(request, 'program/procgen.html', {
-        'meeting': meeting, 'form': form,
+        'meeting': meeting, 'form': form, 'build_form': build_form,
         'presentations': meeting.presentations.prefetch_related('authors').order_by('program_number', 'submission_number'),
         'can_upload': request.user.has_perm('program.change_presentation'),
     })

@@ -63,6 +63,37 @@ class ProceedingsUploadForm(forms.Form):
         return presentation
 
 
+class ProceedingsBuildForm(forms.Form):
+    volume = forms.CharField(label='巻名', max_length=40)
+    header1 = forms.CharField(label='ヘッダー1行目', max_length=150,
+                             widget=forms.TextInput(attrs={'size': 90}))
+    header2 = forms.CharField(label='ヘッダー2行目（会期・開催地）', max_length=150,
+                             widget=forms.TextInput(attrs={'size': 90}))
+    start_page = forms.IntegerField(label='開始ページ番号', min_value=1, max_value=999999, initial=1)
+
+    def clean(self):
+        cleaned = super().clean()
+        from .proceedings_pdf import fitz
+        from django.conf import settings
+        from pathlib import Path
+        if fitz is None:
+            raise forms.ValidationError('PDF加工にはPyMuPDFが必要です。管理者にお問い合わせください。')
+        font_dir = Path(settings.PROCEEDINGS_FONT_DIR)
+        use_files = all((font_dir / name).exists() for name in ('times.ttf', 'timesi.ttf', 'timesbd.ttf'))
+        for field in ('volume', 'header1', 'header2'):
+            value = cleaned.get(field, '')
+            if any(ord(char) < 32 or ord(char) > 126 for char in value):
+                self.add_error(field, '元ビルダーの欧文フォントに合わせ、半角英数字・記号で入力してください。')
+            if field.startswith('header') and value:
+                try:
+                    font = fitz.Font(fontfile=str(font_dir / 'timesi.ttf')) if use_files else fitz.Font(fontname='tiit')
+                except Exception as exc:
+                    raise forms.ValidationError('フォントを読み込めません。管理者はPROCEEDINGS_FONT_DIRを確認してください。') from exc
+                if font.text_length(value, 10) > 575:
+                    self.add_error(field, 'ヘッダーが用紙幅を超えます。文言を短くしてください。')
+        return cleaned
+
+
 class MeetingDateSelect(forms.Select):
     def __init__(self, *args, meeting_dates=None, **kwargs):
         self.meeting_dates = meeting_dates or {}
