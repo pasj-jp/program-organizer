@@ -37,6 +37,7 @@ urlpatterns = [
     path('organize/<int:year>/session/', views.create_session, name='create_session'),
     path('organize/<int:year>/move-session-time/', views.move_session_time, name='move_session_time'),
     path('timetable/<int:year>/', views.timetable, name='timetable_legacy'),
+    path('<int:year>/web_publish/<str:program_code>.pdf', views.published_proceedings_pdf, name='published_proceedings_pdf'),
     path('<int:year>/', views.timetable, name='timetable'),
     path('', views.timetable_index, name='timetable_index'),
 ]

@@ -26,8 +26,8 @@ body{font-family:system-ui,sans-serif;background:#f4f6f8;color:#17212b;margin:0}
 {{ build_form.as_p }}
 <p>採番・セッション割り当て済みの演題をプログラム出力順に処理します。取り消し演題もPDFがあれば含め、未アップロード演題にはページを割り当てません。未割り当て・未採番の演題は対象外です。</p>
 <p>元ビルダーと同じ595×791ptの用紙サイズに変更するため、原稿の端が切れる場合があります。生成後にレイアウトを確認してください。元PDFは変更しません。</p>
-<button type="submit">ヘッダー・フッターを付与してZIPをダウンロード</button>
-<p>ZIPには加工済みPDF、pdf_page_data.txt、proceedings_list.jsonが入ります。編成やPDFを変更した場合は再生成してください。</p>
+<button type="submit">加工済みPDFを保存・公開してZIPをダウンロード</button>
+<p>生成が完了すると加工済みPDFをサーバーに保存し、ログイン不要の /{{ meeting.year }}/web_publish/講演番号.pdf で公開します。ZIPには加工済みPDF、pdf_page_data.txt、proceedings_list.jsonが入ります。編成やPDFを変更した場合は再生成してください。公開PDFのリンクは画面を再読み込みすると表示されます。</p>
 </form>{% endif %}
 <div class="table-wrap"><table>
 <caption>演題一覧（{{ presentations|length }}件）</caption>
@@ -36,7 +36,7 @@ body{font-family:system-ui,sans-serif;background:#f4f6f8;color:#17212b;margin:0}
 <td class="talk-info">{{ talk.program_number|default:'未採番' }}</td>
 <td><span class="talk-info">{{ talk.title }}</span>{% if talk.status == 'withdrawn' %} <small>（発表取り消し）</small>{% endif %}</td>
 <td class="talk-info">{% for author in talk.authors.all %}{% if author.is_presenter %}<div>{{ author }}</div>{% endif %}{% endfor %}</td>
-<td>{% if talk.proceedings_file and talk.program_number %}<span class="dot uploaded" aria-hidden="true"></span><a href="{% url 'proceedings_pdf' meeting.year talk.program_number %}">アップロード済み</a>{% else %}<span class="dot" aria-hidden="true"></span>未アップロード{% endif %}</td>
+<td>{% if talk.proceedings_file and talk.program_number %}<span class="dot uploaded" aria-hidden="true"></span><a href="{% url 'proceedings_pdf' meeting.year talk.program_number %}">アップロード済み</a>{% else %}<span class="dot" aria-hidden="true"></span>未アップロード{% endif %}{% if talk.has_published_pdf %}<br><a href="{% url 'published_proceedings_pdf' meeting.year talk.program_number %}" target="_blank" rel="noopener">公開PDF</a>{% endif %}</td>
 </tr>{% empty %}<tr><td colspan="4">演題がありません。</td></tr>{% endfor %}</tbody>
 </table></div>
 </main>

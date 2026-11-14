@@ -15,6 +15,7 @@ from .models import AnnualMeeting, Presentation, Session
 from .forms import AbstractExcelImportForm, BoardPresentationForm, ProgramExcelImportForm, SessionChairsForm, SessionForm
 from .forms import ProceedingsUploadForm, ProceedingsBuildForm
 from .proceedings import ProceedingsError, build_proceedings, header_defaults
+from .proceedings_publish import CODE_PATTERN, published_directory
 from .timetable import build_timetable
 from .program_excel import export_program, import_program
 from .program_json import export_program_json as build_program_json
@@ -70,9 +71,13 @@ def procgen(request, year):
                     storage.delete(old_name)
             messages.success(request, f'{len(form.uploads)}件のPDFをアップロードしました。')
             return redirect('procgen', year=year)
+    presentations = list(meeting.presentations.prefetch_related('authors').order_by('program_number', 'submission_number'))
+    for talk in presentations:
+        talk.has_published_pdf = bool(re.fullmatch(CODE_PATTERN, talk.program_number or '') and
+            (published_directory(year) / f'{talk.program_number}.pdf').is_file())
     return render(request, 'program/procgen.html', {
         'meeting': meeting, 'form': form, 'build_form': build_form,
-        'presentations': meeting.presentations.prefetch_related('authors').order_by('program_number', 'submission_number'),
+        'presentations': presentations,
         'can_upload': request.user.has_perm('program.change_presentation'),
     })
 
@@ -88,6 +93,20 @@ def proceedings_pdf(request, year, program_code):
     except FileNotFoundError:
         raise Http404
     return FileResponse(pdf, as_attachment=True, filename=f'{talk.program_number or talk.submission_number}.pdf',
+                        content_type='application/pdf')
+
+
+@require_http_methods(['GET', 'HEAD'])
+@never_cache
+def published_proceedings_pdf(request, year, program_code):
+    get_object_or_404(AnnualMeeting, start_date__year=year)
+    if not re.fullmatch(CODE_PATTERN, program_code):
+        raise Http404
+    try:
+        pdf = (published_directory(year) / f'{program_code}.pdf').open('rb')
+    except (FileNotFoundError, NotADirectoryError):
+        raise Http404
+    return FileResponse(pdf, as_attachment=False, filename=f'{program_code}.pdf',
                         content_type='application/pdf')
 
 

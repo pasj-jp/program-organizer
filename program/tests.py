@@ -978,7 +978,8 @@ class ProceedingsTests(TestCase):
         self.media = TemporaryDirectory()
         self.addCleanup(self.media.cleanup)
         from django.test import override_settings
-        override = override_settings(PROCEEDINGS_ROOT=self.media.name)
+        override = override_settings(PROCEEDINGS_ROOT=self.media.name,
+                                     PROCEEDINGS_PUBLISH_ROOT=self.media.name + '/published')
         override.enable()
         self.addCleanup(override.disable)
         self.user = get_user_model().objects.create_user('proceedings-editor')
@@ -1363,3 +1364,59 @@ class ProceedingsBuildTests(TestCase):
         self.assertNotEqual(response['Content-Type'], 'application/zip')
         with self.talk.proceedings_file.open('rb') as saved:
             self.assertEqual(saved.read(), original)
+
+    def test_publication_url_storage_replacement_and_year_isolation(self):
+        from django.test import Client
+        from pathlib import Path
+        self.assign(self.talk)
+        self.save_pdf(self.talk, self.pdf_bytes())
+        public = Client()
+        url = '/2027/web_publish/FRP001.pdf'
+        self.assertEqual(public.get(url).status_code, 404)
+        response = self.build()
+        response.close()
+        path = Path(self.media.name) / 'published/2027/web_publish/FRP001.pdf'
+        first = path.read_bytes()
+        response = public.get(url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'], 'application/pdf')
+        self.assertTrue(response['Content-Disposition'].startswith('inline;'))
+        self.assertEqual(b''.join(response.streaming_content), first)
+        self.assertContains(self.client.get(self.url), url)
+        self.assertEqual(public.get('/2028/web_publish/FRP001.pdf').status_code, 404)
+        self.assertEqual(public.get('/2099/web_publish/FRP001.pdf').status_code, 404)
+        self.assertEqual(public.get('/2027/web_publish/UNKNOWN.pdf').status_code, 404)
+        self.assertEqual(public.get('/2027/web_publish/%2e%2e.pdf').status_code, 404)
+        self.assertEqual(public.post(url).status_code, 405)
+        head = public.head(url)
+        self.assertEqual(head.status_code, 200)
+        head.close()
+        self.save_pdf(self.talk, self.pdf_bytes(2))
+        self.build(start_page=20).close()
+        self.assertNotEqual(path.read_bytes(), first)
+        # Renumbering only takes effect on public files when a complete batch is rebuilt.
+        Presentation.objects.filter(pk=self.talk.pk).update(program_number='FRP003')
+        self.build().close()
+        self.assertEqual(public.get(url).status_code, 404)
+        response = public.get('/2027/web_publish/FRP003.pdf')
+        self.assertEqual(response.status_code, 200)
+        response.close()
+
+    def test_failed_publication_preserves_previous_generation(self):
+        from pathlib import Path
+        self.assign(self.talk)
+        self.save_pdf(self.talk, self.pdf_bytes())
+        self.build().close()
+        path = Path(self.media.name) / 'published/2027/web_publish/FRP001.pdf'
+        original = path.read_bytes()
+        self.save_pdf(self.talk, self.pdf_bytes(2))
+        with patch('program.proceedings_publish.os.replace', side_effect=OSError('disk error')):
+            with self.assertLogs('program.proceedings', level='WARNING'):
+                response = self.build()
+        self.assertContains(response, '加工済みPDFを保存できません')
+        self.assertEqual(path.read_bytes(), original)
+        self.save_pdf(self.talk, b'%PDF-broken')
+        with self.assertLogs('program.proceedings', level='WARNING'):
+            response = self.build()
+        self.assertContains(response, 'PDFを加工できません')
+        self.assertEqual(path.read_bytes(), original)

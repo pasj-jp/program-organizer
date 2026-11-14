@@ -10,6 +10,7 @@ from zipfile import ZipFile, ZIP_DEFLATED
 
 from django.conf import settings
 
+from .proceedings_publish import publish_archive
 from .program_data import iter_program_rows
 from .proceedings_pdf import process_pdf
 from .program_print import strip_html
@@ -70,6 +71,11 @@ def build_proceedings(meeting, options):
                 lines.append(f'{index}\t{code}\t{start_page if start_page is not None else ""}\n')
             bundle.writestr('pdf_page_data.txt', ''.join(lines))
             bundle.writestr('proceedings_list.json', json.dumps(records, ensure_ascii=False, indent=2) + '\n')
+        try:
+            publish_archive(meeting.year, archive)
+        except OSError as exc:
+            logger.warning('Proceedings publication failed: meeting=%s', meeting.pk, exc_info=True)
+            raise ProceedingsError('加工済みPDFを保存できません。管理者は公開先の保存パスと書き込み権限を確認してください。') from exc
         archive.seek(0)
         return archive
     except Exception:

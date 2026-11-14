@@ -41,3 +41,6 @@ PASSWORD_RESET_TIMEOUT = 60 * 60
 
 # Optional Times New Roman files: times.ttf, timesi.ttf, timesbd.ttf.
 PROCEEDINGS_FONT_DIR = Path(os.environ.get('PROCEEDINGS_FONT_DIR', str(BASE_DIR / 'ttfonts' / 'TimesNewRomanPSMT')))
+
+# Processed public PDFs; keep separate from submitted originals.
+PROCEEDINGS_PUBLISH_ROOT = Path(os.environ.get('PROCEEDINGS_PUBLISH_ROOT', str(BASE_DIR / 'published_proceedings')))
