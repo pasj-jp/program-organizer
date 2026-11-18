@@ -7,7 +7,7 @@ from pathlib import Path
 from contextlib import contextmanager
 from tempfile import mkdtemp, TemporaryFile, TemporaryDirectory
 from uuid import uuid4
-from .proceedings_pdf import fitz
+from .proceedings_pdf import pymupdf
 
 from django.conf import settings
 
@@ -43,7 +43,7 @@ def download_pdf(year):
     records = json.loads((directory / PROCEEDINGS_LIST_FILE).read_text(encoding='utf-8'))
     result = TemporaryFile()
     try:
-        with fitz.open() as merged:
+        with pymupdf.open() as merged:
             labels = []
             for record in records:
                 if record['start_page'] is None:
@@ -51,7 +51,7 @@ def download_pdf(year):
                 code = record['talk_id']
                 if not re.fullmatch(CODE_PATTERN, code):
                     raise ValueError('Invalid published program code')
-                with fitz.open(directory / f'{code}.pdf') as source:
+                with pymupdf.open(directory / f'{code}.pdf') as source:
                     labels.append({'startpage': merged.page_count, 'prefix': '', 'style': 'D',
                                    'firstpagenum': record['start_page']})
                     merged.insert_pdf(source)

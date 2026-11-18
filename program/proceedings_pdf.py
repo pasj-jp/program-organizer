@@ -5,18 +5,18 @@ from pathlib import Path
 from typing import Any
 
 try:
-    import fitz
+    import pymupdf
 except ImportError:
-    fitz = None
+    pymupdf = None
 
 JST = timezone(timedelta(hours=9))
 
 
 def text_width(text: str, fontname: str, fontsize: float, fontfile: Path | None = None) -> float:
     if fontfile is not None:
-        font = fitz.Font(fontfile=str(fontfile))
+        font = pymupdf.Font(fontfile=str(fontfile))
     else:
-        font = fitz.Font(fontname=fontname)
+        font = pymupdf.Font(fontname=fontname)
     return font.text_length(text, fontsize)
 
 
@@ -38,7 +38,7 @@ def insert_centered_text(
     }
     if fontfile is not None:
         kwargs["fontfile"] = str(fontfile)
-    page.insert_text(fitz.Point(x, y), text, **kwargs)
+    page.insert_text(pymupdf.Point(x, y), text, **kwargs)
 
 
 def process_pdf(
@@ -52,10 +52,10 @@ def process_pdf(
     font_dir: Path,
     dry_run: bool,
 ) -> int:
-    if fitz is None:
+    if pymupdf is None:
         raise RuntimeError("PyMuPDF is not installed. Run: pip install -r requirements.txt")
 
-    doc = fitz.open(source_pdf)
+    doc = pymupdf.open(source_pdf)
     try:
         if doc.needs_pass or not doc.is_pdf or not doc.page_count:
             raise ValueError('暗号化されたPDF、空のPDFは加工できません。')
@@ -82,7 +82,7 @@ def process_pdf(
             page_number = start_page + page_index
 
             # Match the legacy CGI's fixed media box: 595 x 791 pt.
-            page.set_mediabox(fitz.Rect(0, 0, 595, 791))
+            page.set_mediabox(pymupdf.Rect(0, 0, 595, 791))
 
             insert_centered_text(page, header1, 15, font_italic, 10, blue, italic_file)
             insert_centered_text(page, header2, 26, font_italic, 10, blue, italic_file)
@@ -99,7 +99,7 @@ def process_pdf(
             }
             if bold_file is not None:
                 kwargs["fontfile"] = str(bold_file)
-            page.insert_text(fitz.Point(x, 37), paper_id, **kwargs)
+            page.insert_text(pymupdf.Point(x, 37), paper_id, **kwargs)
 
             insert_centered_text(
                 page,

@@ -1252,8 +1252,8 @@ class ProceedingsBuildTests(TestCase):
     setUp = ProceedingsTests.setUp
 
     def pdf_bytes(self, pages=1):
-        import fitz
-        with fitz.open() as doc:
+        import pymupdf
+        with pymupdf.open() as doc:
             for index in range(pages):
                 page = doc.new_page()
                 page.insert_text((60, 100), f'Original body {index}')
@@ -1276,7 +1276,7 @@ class ProceedingsBuildTests(TestCase):
         return self.client.post(self.url, options)
 
     def test_layout_page_sequence_metadata_and_original_preserved(self):
-        import fitz
+        import pymupdf
         import json
         self.assign(self.talk, 2)
         first = Presentation.objects.create(annual_meeting=self.meeting, submission_number='2',
@@ -1295,7 +1295,7 @@ class ProceedingsBuildTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response['Content-Type'], 'application/pdf')
         self.assertIn('proceedings-2027.pdf', response['Content-Disposition'])
-        with fitz.open(stream=b''.join(response.streaming_content), filetype='pdf') as merged:
+        with pymupdf.open(stream=b''.join(response.streaming_content), filetype='pdf') as merged:
             self.assertEqual(merged.page_count, 3)
             self.assertEqual([page.get_label() for page in merged], ['10', '11', '12'])
             self.assertIn('ZZ01', merged[0].get_text())
@@ -1308,7 +1308,7 @@ class ProceedingsBuildTests(TestCase):
         self.assertEqual([(r['talk_id'], r['start_page']) for r in records],
                          [('ZZ01', 10), ('FRP001', 12), ('ZZ02', None)])
         self.assertEqual((directory / 'pdf_page_data.txt').read_text(), '1\tZZ01\t10\n2\tFRP001\t12\n3\tZZ02\t\n')
-        with fitz.open(directory / 'ZZ01.pdf') as doc:
+        with pymupdf.open(directory / 'ZZ01.pdf') as doc:
             self.assertEqual(doc.page_count, 2)
             self.assertEqual(tuple(doc[0].mediabox), (0, 0, 595, 791))
             self.assertEqual(doc.metadata['title'], 'English title')
@@ -1336,9 +1336,9 @@ class ProceedingsBuildTests(TestCase):
             self.assertEqual(saved.read(), b'%PDF-broken')
         for values in [{'start_page': 0}, {'header1': ''}, {'header1': '日本語'}, {'header1': 'W' * 150}]:
             self.assertTrue(self.build(**values).context['build_form'].errors)
-        import fitz
-        with fitz.open(stream=self.pdf_bytes(), filetype='pdf') as doc:
-            encrypted = doc.tobytes(encryption=fitz.PDF_ENCRYPT_AES_256, owner_pw='owner', user_pw='secret')
+        import pymupdf
+        with pymupdf.open(stream=self.pdf_bytes(), filetype='pdf') as doc:
+            encrypted = doc.tobytes(encryption=pymupdf.PDF_ENCRYPT_AES_256, owner_pw='owner', user_pw='secret')
         self.save_pdf(self.talk, encrypted)
         with self.assertLogs('program.proceedings', level='WARNING'):
             self.assertContains(self.build(), 'PDFを加工できません')
@@ -1444,10 +1444,10 @@ class ProceedingsBuildTests(TestCase):
         with patch('program.views.build_proceedings', side_effect=AssertionError('must not regenerate')):
             response = self.client.get(url)
         self.assertEqual(response.status_code, 200)
-        import fitz
-        with fitz.open(stream=b''.join(response.streaming_content), filetype='pdf') as merged:
+        import pymupdf
+        with pymupdf.open(stream=b''.join(response.streaming_content), filetype='pdf') as merged:
             from program.proceedings_publish import published_directory
-            with fitz.open(published_directory(2027) / 'FRP001.pdf') as source:
+            with pymupdf.open(published_directory(2027) / 'FRP001.pdf') as source:
                 self.assertEqual(merged.page_count, source.page_count)
                 self.assertEqual(merged[0].get_text(), source[0].get_text())
         self.assertEqual(self.client.get(reverse('proceedings_download', args=[2028])).status_code, 404)

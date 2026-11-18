@@ -73,10 +73,10 @@ class ProceedingsBuildForm(forms.Form):
 
     def clean(self):
         cleaned = super().clean()
-        from .proceedings_pdf import fitz
+        from .proceedings_pdf import pymupdf
         from django.conf import settings
         from pathlib import Path
-        if fitz is None:
+        if pymupdf is None:
             raise forms.ValidationError('PDF加工にはPyMuPDFが必要です。管理者にお問い合わせください。')
         font_dir = Path(settings.PROCEEDINGS_FONT_DIR)
         use_files = all((font_dir / name).exists() for name in ('times.ttf', 'timesi.ttf', 'timesbd.ttf'))
@@ -86,7 +86,7 @@ class ProceedingsBuildForm(forms.Form):
                 self.add_error(field, '元ビルダーの欧文フォントに合わせ、半角英数字・記号で入力してください。')
             if field.startswith('header') and value:
                 try:
-                    font = fitz.Font(fontfile=str(font_dir / 'timesi.ttf')) if use_files else fitz.Font(fontname='tiit')
+                    font = pymupdf.Font(fontfile=str(font_dir / 'timesi.ttf')) if use_files else pymupdf.Font(fontname='tiit')
                 except Exception as exc:
                     raise forms.ValidationError('フォントを読み込めません。管理者はPROCEEDINGS_FONT_DIRを確認してください。') from exc
                 if font.text_length(value, 10) > 575:
