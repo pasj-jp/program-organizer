@@ -3,19 +3,14 @@ from django.urls import path
 from django.shortcuts import render, redirect
 from django import forms
 from .models import AnnualMeeting, Author, Presentation, Session, SessionChair, Venue
-from .forms import PresentationForm, SessionForm
+from .forms import AbstractExcelImportForm, PresentationForm, SessionForm
 from .abstract_excel import import_abstracts
 
 
-class ImportForm(forms.Form):
+class ImportForm(AbstractExcelImportForm):
+    field_order = ('annual_meeting', 'file')
     annual_meeting = forms.ModelChoiceField(label='年会情報', queryset=AnnualMeeting.objects.all())
     file = forms.FileField(label='アブストラクト Excel ファイル (.xlsx)')
-
-    def clean_file(self):
-        file = self.cleaned_data['file']
-        if not file.name.lower().endswith('.xlsx'):
-            raise forms.ValidationError('.xlsx ファイルを選択してください。')
-        return file
 
 
 class AuthorInline(admin.StackedInline):
@@ -65,16 +60,15 @@ class PresentationAdmin(admin.ModelAdmin):
 
     @admin.action(description='選択した演題を発表取り消しにする')
     def withdraw(self, request, queryset):
-        session_ids = set(queryset.values_list('session_id', flat=True))
-        queryset.update(status=Presentation.Status.WITHDRAWN)
-        for session in Session.objects.filter(pk__in=session_ids):
-            session.recalculate_end_time()
-            session.recalculate_program_numbers()
+        self._set_status(queryset, Presentation.Status.WITHDRAWN)
 
     @admin.action(description='選択した演題を発表予定に戻す')
     def restore(self, request, queryset):
+        self._set_status(queryset, Presentation.Status.ACTIVE)
+
+    def _set_status(self, queryset, status):
         session_ids = set(queryset.values_list('session_id', flat=True))
-        queryset.update(status=Presentation.Status.ACTIVE)
+        queryset.update(status=status)
         for session in Session.objects.filter(pk__in=session_ids):
             session.recalculate_end_time()
             session.recalculate_program_numbers()

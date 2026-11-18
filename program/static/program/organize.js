@@ -66,75 +66,64 @@ function applyFilter(){
 }
 formatFilter.addEventListener('change',applyFilter);
 categoryFilter.addEventListener('change',applyFilter);
-const presentationDialog = document.getElementById('presentation-dialog');
-const presentationDialogContent = document.getElementById('presentation-dialog-content');
-board.addEventListener('click',async event=>{
-  const button=event.target.closest('.edit-presentation');
-  if(!button)return;
-  try{
-    const response=await fetch(button.dataset.editUrl);
-    if(!response.ok)throw new Error('編集画面を開けませんでした。');
-    presentationDialogContent.innerHTML=await response.text();
-    presentationDialog.showModal();
-    presentationDialog.querySelector('textarea, input, select')?.focus();
-  }catch(error){notice(error.message,true);}
-});
-presentationDialog.addEventListener('click',event=>{
-  if(event.target.closest('.dialog-cancel'))presentationDialog.close();
-});
-presentationDialog.addEventListener('submit',async event=>{
-  if(event.target.id!=='presentation-edit-form')return;
-  event.preventDefault();
-  const form=event.target;
-  const submit=form.querySelector('button[type="submit"]');
-  submit.disabled=true;
-  try{
-    const response=await fetch(form.action,{method:'POST',body:new FormData(form)});
-    if(response.status===400){
-      presentationDialogContent.innerHTML=await response.text();
-      presentationDialog.querySelector('.errorlist')?.scrollIntoView({block:'nearest'});
-      return;
+function initializeEditDialog({name, openError, saveError, focusSelector, initializeContent = () => {}}) {
+  const dialog = document.getElementById(`${name}-dialog`);
+  const content = document.getElementById(`${name}-dialog-content`);
+  async function replaceContent(response) {
+    content.innerHTML = await response.text();
+    initializeContent(content);
+  }
+  board.addEventListener('click', async event => {
+    const button = event.target.closest(`.edit-${name}`);
+    if (!button) return;
+    try {
+      const response = await fetch(button.dataset.editUrl);
+      if (!response.ok) throw new Error(openError);
+      await replaceContent(response);
+      dialog.showModal();
+      dialog.querySelector(focusSelector)?.focus();
+    } catch (error) {
+      notice(error.message, true);
     }
-    if(!response.ok)throw new Error('演題を保存できませんでした。');
-    location.reload();
-  }catch(error){notice(error.message,true);presentationDialog.close();}
-  finally{submit.disabled=false;}
-});
-const sessionDialog = document.getElementById('session-dialog');
-const sessionDialogContent = document.getElementById('session-dialog-content');
-board.addEventListener('click',async event=>{
-  const button=event.target.closest('.edit-session');
-  if(!button)return;
-  try{
-    const response=await fetch(button.dataset.editUrl);
-    if(!response.ok)throw new Error('セッションの編集画面を開けませんでした。');
-    sessionDialogContent.innerHTML=await response.text();
-    initializeSessionKind(sessionDialogContent);
-    sessionDialog.showModal();
-    sessionDialog.querySelector('input:not([type=hidden])')?.focus();
-  }catch(error){notice(error.message,true);}
-});
-sessionDialog.addEventListener('click',event=>{
-  if(event.target.closest('.dialog-cancel'))sessionDialog.close();
-});
-sessionDialog.addEventListener('submit',async event=>{
-  if(event.target.id!=='session-edit-form')return;
-  event.preventDefault();
-  const form=event.target;
-  const submit=form.querySelector('button[type="submit"]');
-  submit.disabled=true;
-  try{
-    const response=await fetch(form.action,{method:'POST',body:new FormData(form)});
-    if(response.status===400){
-      sessionDialogContent.innerHTML=await response.text();
-      initializeSessionKind(sessionDialogContent);
-      sessionDialog.querySelector('.errorlist')?.scrollIntoView({block:'nearest'});
-      return;
+  });
+  dialog.addEventListener('click', event => {
+    if (event.target.closest('.dialog-cancel')) dialog.close();
+  });
+  dialog.addEventListener('submit', async event => {
+    if (event.target.id !== `${name}-edit-form`) return;
+    event.preventDefault();
+    const form = event.target;
+    const submit = form.querySelector('button[type="submit"]');
+    submit.disabled = true;
+    try {
+      const response = await fetch(form.action, {method: 'POST', body: new FormData(form)});
+      if (response.status === 400) {
+        await replaceContent(response);
+        dialog.querySelector('.errorlist')?.scrollIntoView({block: 'nearest'});
+        return;
+      }
+      if (!response.ok) throw new Error(saveError);
+      location.reload();
+    } catch (error) {
+      notice(error.message, true);
+      dialog.close();
+    } finally {
+      submit.disabled = false;
     }
-    if(!response.ok)throw new Error('セッションを保存できませんでした。');
-    location.reload();
-  }catch(error){notice(error.message,true);sessionDialog.close();}
-  finally{submit.disabled=false;}
+  });
+}
+initializeEditDialog({
+  name: 'presentation',
+  openError: '編集画面を開けませんでした。',
+  saveError: '演題を保存できませんでした。',
+  focusSelector: 'textarea, input, select',
+});
+initializeEditDialog({
+  name: 'session',
+  openError: 'セッションの編集画面を開けませんでした。',
+  saveError: 'セッションを保存できませんでした。',
+  focusSelector: 'input:not([type=hidden])',
+  initializeContent: initializeSessionKind,
 });
 if(canChange){
   document.querySelectorAll('.card').forEach(card=>{

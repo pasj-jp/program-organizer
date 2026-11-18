@@ -7,12 +7,50 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 from django.urls import reverse
 from .forms import SessionForm
 from .models import AnnualMeeting, Presentation, Session, SessionChair, Venue
 from .timetable import build_timetable
 from .program_excel import HEADERS, import_program, export_program, read_program
+
+
+class ProgramParsingTests(SimpleTestCase):
+    def test_format_classification_preserves_excel_session_name_fallback(self):
+        from .program_excel import presentation_kind
+
+        for value, expected in (
+            ('口頭発表 [Oral]', Session.Kind.ORAL),
+            ('ポスター発表 [Poster]', Session.Kind.POSTER),
+            ('施設技術報告ポスター [Status report]', Session.Kind.FACILITY_REPORT),
+            ('施設報告ポスター', Session.Kind.FACILITY_REPORT),
+            ('招待講演', Session.Kind.OTHER),
+            ('', Session.Kind.OTHER),
+        ):
+            with self.subTest(value=value):
+                self.assertEqual(Presentation(presentation_format=value).format_kind, expected)
+                self.assertEqual(presentation_kind(value, '通常セッション'), expected)
+                # The legacy name fallback must not override an explicit oral/poster format.
+                fallback = Session.Kind.FACILITY_REPORT if expected == Session.Kind.OTHER else expected
+                self.assertEqual(presentation_kind(value, 'ポスター①②'), fallback)
+
+    def test_program_columns_match_duplicate_occurrences_and_missing_optional_columns(self):
+        from .program_excel import program_column_positions
+
+        headers = list(HEADERS)
+        headers[2], headers[33] = headers[33], headers[2]
+        headers[7] = f' {headers[7]} '
+        headers[14] = None
+        positions = program_column_positions(headers)
+        self.assertEqual(positions[2], 33)
+        self.assertEqual(positions[33], 2)
+        self.assertEqual((positions[7], positions[36]), (7, 36))
+        self.assertIsNone(positions[14])
+        headers[36] = None
+        self.assertIsNone(program_column_positions(headers)[36])
+        headers[33] = None
+        with self.assertRaisesMessage(ValueError, '演題登録番号'):
+            program_column_positions(headers)
 
 
 class OrganizerTests(TestCase):
@@ -513,6 +551,28 @@ class OrganizerTests(TestCase):
         self.session.refresh_from_db()
         self.assertEqual(self.session.end_time, time(11, 0))
 
+    def test_admin_status_actions_preserve_assignment_numbers_and_duration(self):
+        from django.contrib import admin
+        from .admin import PresentationAdmin
+
+        self.move(self.first, self.session.pk, [self.first.pk])
+        self.move(self.second, self.session.pk, [self.first.pk, self.second.pk])
+        model_admin = PresentationAdmin(Presentation, admin.site)
+        for action, old_status, new_status in (
+            (model_admin.withdraw, Presentation.Status.ACTIVE, Presentation.Status.WITHDRAWN),
+            (model_admin.restore, Presentation.Status.WITHDRAWN, Presentation.Status.ACTIVE),
+        ):
+            with self.subTest(status=new_status):
+                # The queryset stops matching after the update; session IDs must be read first.
+                action(None, Presentation.objects.filter(pk=self.first.pk, status=old_status))
+                self.first.refresh_from_db()
+                self.second.refresh_from_db()
+                self.session.refresh_from_db()
+                self.assertEqual(self.first.status, new_status)
+                self.assertEqual(self.first.session_id, self.session.pk)
+                self.assertEqual((self.first.program_number, self.second.program_number), ('FRO01', 'FRO02'))
+                self.assertEqual(self.session.end_time, time(10, 40))
+
     def test_session_code_change_renumbers(self):
         self.move(self.first, self.session.pk, [self.first.pk])
         self.session.code = 'XYZ'
@@ -704,7 +764,7 @@ class OrganizerTests(TestCase):
         self.assertContains(response, '第2希望: ビーム物理')
         self.assertContains(response, 'class="edit-presentation"')
         self.assertNotContains(response, reverse('admin:program_presentation_change', args=[self.first.pk]))
-        self.assertContains(response, 'src="/static/program/organize.js?v=9"')
+        self.assertContains(response, 'src="/static/program/organize.js?v=10"')
         self.assertContains(response, 'data-move-url="/organize/move/"')
 
     def test_presentation_edit_popup_saves_and_validates(self):

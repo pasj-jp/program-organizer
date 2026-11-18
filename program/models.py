@@ -66,6 +66,16 @@ class Session(models.Model):
         FACILITY_REPORT = 'facility_report', '施設報告ポスター'
         OTHER = 'other', 'その他・従来形式'
 
+        @classmethod
+        def from_presentation_format(cls, value):
+            if value.startswith('口頭発表'):
+                return cls.ORAL
+            if value.startswith('ポスター発表'):
+                return cls.POSTER
+            if value.startswith(('施設技術報告ポスター', '施設報告ポスター')):
+                return cls.FACILITY_REPORT
+            return cls.OTHER
+
     name = models.CharField('セッション名', max_length=200)
     kind = models.CharField('発表形式', max_length=20, choices=Kind.choices, default=Kind.OTHER)
     code = models.CharField('セッションコード', max_length=20, unique=True, null=True, blank=True,
@@ -281,14 +291,7 @@ class Presentation(models.Model):
 
     @property
     def format_kind(self):
-        value = self.presentation_format
-        if value.startswith('口頭発表'):
-            return Session.Kind.ORAL
-        if value.startswith('ポスター発表'):
-            return Session.Kind.POSTER
-        if value.startswith(('施設技術報告ポスター', '施設報告ポスター')):
-            return Session.Kind.FACILITY_REPORT
-        return Session.Kind.OTHER
+        return Session.Kind.from_presentation_format(self.presentation_format)
 
 
 class SessionChair(models.Model):

@@ -91,15 +91,51 @@ def chosen_category(talk, source):
 
 
 def presentation_kind(format_name, session_name):
-    if format_name.startswith('口頭発表'):
-        return Session.Kind.ORAL
-    if format_name.startswith('ポスター発表'):
-        return Session.Kind.POSTER
-    if format_name.startswith(('施設技術報告ポスター', '施設報告ポスター')):
-        return Session.Kind.FACILITY_REPORT
+    kind = Session.Kind.from_presentation_format(format_name)
+    if kind != Session.Kind.OTHER:
+        return kind
     if len([mark for mark in POSTER_MARKS if mark in session_name]) >= 2:
         return Session.Kind.FACILITY_REPORT
     return Session.Kind.OTHER
+
+
+def program_column_positions(headers):
+    """Match repeated headers by occurrence, preserving the program column layout."""
+    positions = defaultdict(list)
+    for index, header in enumerate(headers):
+        if header is not None:
+            positions[str(header).strip()].append(index)
+    missing = [HEADERS[index - 1] for index in REQUIRED_COLUMNS
+               if not positions[HEADERS[index - 1]]]
+    if missing:
+        raise ValueError('program.xlsx形式の列がありません: ' + '、'.join(missing))
+    occurrences = defaultdict(int)
+    source_positions = []
+    for header in HEADERS:
+        occurrence = occurrences[header]
+        matching = positions[header]
+        source_positions.append(matching[occurrence] if occurrence < len(matching) else None)
+        occurrences[header] += 1
+    return source_positions
+
+
+def program_slots(row, meeting, row_number, kind):
+    """Parse one session slot or the two linked facility-report poster slots."""
+    day_values = str(cell(row, 10)).split('・') if isinstance(row[9], str) and '・' in row[9] else [row[9]]
+    if len(day_values) > 1:
+        month_match = re.search(r'(\d{1,2})月', day_values[0])
+        if month_match:
+            day_values = [day if '月' in day else f'{month_match[1]}月{day}' for day in day_values]
+    time_values = cell(row, 11).split('/')
+    if len(day_values) != len(time_values):
+        raise ValueError(f'{row_number}行目: 開催日と発表時間の枠数が一致しません。')
+    slots = tuple((parse_day(day, meeting, row_number), *parse_slot(slot, row_number))
+                  for day, slot in zip(day_values, time_values))
+    if kind == Session.Kind.FACILITY_REPORT and len(slots) != 2:
+        raise ValueError(f'{row_number}行目: 2つのポスター枠の開催日と時間が必要です。')
+    if kind != Session.Kind.FACILITY_REPORT and len(slots) != 1:
+        raise ValueError(f'{row_number}行目: 発表形式に対して時間枠が複数あります。')
+    return slots
 
 
 def read_program(file, meeting):
@@ -111,21 +147,7 @@ def read_program(file, meeting):
         sheet = book.worksheets[0]
         rows = sheet.iter_rows(values_only=True)
         headers = next(rows, ())
-        positions = defaultdict(list)
-        for index, header in enumerate(headers):
-            if header is not None:
-                positions[str(header).strip()].append(index)
-        missing = [HEADERS[index - 1] for index in REQUIRED_COLUMNS
-                   if not positions[HEADERS[index - 1]]]
-        if missing:
-            raise ValueError('program.xlsx形式の列がありません: ' + '、'.join(missing))
-        occurrences = defaultdict(int)
-        source_positions = []
-        for header in HEADERS:
-            occurrence = occurrences[header]
-            matching = positions[header]
-            source_positions.append(matching[occurrence] if occurrence < len(matching) else None)
-            occurrences[header] += 1
+        source_positions = program_column_positions(headers)
         groups = OrderedDict()
         seen = set()
         for row_number, source_row in enumerate(rows, start=2):
@@ -145,21 +167,8 @@ def read_program(file, meeting):
             name, format_name, room = cell(row, 6), cell(row, 5), cell(row, 12)
             if not name or not format_name or not room:
                 raise ValueError(f'{row_number}行目: セッション、確定発表形式、会場が必要です。')
-            day_values = str(cell(row, 10)).split('・') if isinstance(row[9], str) and '・' in row[9] else [row[9]]
-            if len(day_values) > 1:
-                month_match = re.search(r'(\d{1,2})月', day_values[0])
-                if month_match:
-                    day_values = [day if '月' in day else f'{month_match[1]}月{day}' for day in day_values]
-            time_values = cell(row, 11).split('/')
-            if len(day_values) != len(time_values):
-                raise ValueError(f'{row_number}行目: 開催日と発表時間の枠数が一致しません。')
-            slots = tuple((parse_day(day, meeting, row_number), *parse_slot(slot, row_number))
-                          for day, slot in zip(day_values, time_values))
             kind = presentation_kind(format_name, name)
-            if kind == Session.Kind.FACILITY_REPORT and len(slots) != 2:
-                raise ValueError(f'{row_number}行目: 2つのポスター枠の開催日と時間が必要です。')
-            if kind != Session.Kind.FACILITY_REPORT and len(slots) != 1:
-                raise ValueError(f'{row_number}行目: 発表形式に対して時間枠が複数あります。')
+            slots = program_slots(row, meeting, row_number, kind)
             key = (name, kind, room, slots)
             groups.setdefault(key, []).append((row_number, row))
         if not groups:
