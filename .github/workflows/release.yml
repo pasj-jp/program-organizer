@@ -1,0 +1,55 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate release tag
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if [[ "$REF_TYPE" != tag || ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$ ]]; then
+            echo '::error::Select a version tag such as v1.0.0 or v1.0.0-rc.1.'
+            exit 1
+          fi
+
+  release:
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          # A successful rerun must not modify an already published release.
+          if gh release view "$TAG" --json isDraft --jq '.isDraft' > release-is-draft.txt; then
+            if [[ "$(cat release-is-draft.txt)" == false ]]; then
+              echo "Release $TAG is already published."
+              exit 0
+            fi
+            echo '::error::A draft release already exists for this tag. Resolve it before rerunning.'
+            exit 1
+          fi
+          options=(--verify-tag --generate-notes --title "$TAG")
+          if [[ "$TAG" == *-* ]]; then
+            options+=(--prerelease --latest=false)
+          fi
+          gh release create "$TAG" "${options[@]}"

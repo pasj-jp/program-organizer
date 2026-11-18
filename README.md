@@ -2,6 +2,19 @@
 
 `abstract.xlsx` の1枚目にある演題一覧を読み込み、Django 管理画面でプログラムを編成します。
 
+## GitHub Release の発行
+
+リリース対象のコミットにバージョンタグを付け、GitHubへpushします。
+
+```bash
+git tag -a v1.0.0 -m 'Release v1.0.0'
+git push origin v1.0.0
+```
+
+GitHub Actionsの `Release` workflowがタグの形式を確認し、GitHub Releaseを公開します。リリースノートはGitHubが自動生成し、ソースコードのZIP / tar.gzはGitHub標準のダウンロードを使用します。DBやアップロード済みPDFは含みません。追加のシークレット登録は不要で、公開ジョブだけに `GITHUB_TOKEN` の `contents: write` 権限を付与しています。
+
+タグは `v1.0.0` の形式を使用します。`v1.0.0-rc.1` などハイフン付きのタグはプレリリースとして公開します。手動実行する場合は、Actions → Release → Run workflowで対象の**タグ**を選択してください（ブランチを選ぶとエラーになります）。workflowを手動実行するには、このファイルがデフォルトブランチにも必要です。公開済みの同じタグで再実行してもReleaseは変更しません。
+
 ## 起動
 
 ```bash
@@ -92,7 +105,7 @@ export DJANGO_SETTINGS_MODULE=config.settings.production
 
 ### DB別のテスト
 
-`.venv/bin/python manage.py test` は現在のDB設定でテスト専用DBを作成します。PostgreSQLで実行する際は、本番と別の検証用ロール・DBを使用し、ロールにテストDB作成用の `CREATEDB` 権限を付与してください。GitHub ActionsではSQLiteとPostgreSQLの両方で同じテストを実行します。
+`.venv/bin/python manage.py test` は現在のDB設定でテスト専用DBを作成します。PostgreSQLで実行する際は、本番と別の検証用ロール・DBを使用し、ロールにテストDB作成用の `CREATEDB` 権限を付与してください。
 
 ## 操作
 
