@@ -14,8 +14,8 @@ from django.views.decorators.cache import never_cache
 from .models import AnnualMeeting, Presentation, Session
 from .forms import AbstractExcelImportForm, BoardPresentationForm, ProgramExcelImportForm, SessionChairsForm, SessionForm
 from .forms import ProceedingsUploadForm, ProceedingsBuildForm
-from .proceedings import ProceedingsError, build_proceedings, header_defaults
-from .proceedings_publish import CODE_PATTERN, published_directory, download_archive
+from .proceedings import ProceedingsError, build_proceedings, header_defaults, save_uploads
+from .proceedings_publish import CODE_PATTERN, published_directory, download_pdf
 from .timetable import build_timetable
 from .program_excel import export_program, import_program
 from .program_json import export_program_json as build_program_json
@@ -54,22 +54,14 @@ def procgen(request, year):
         if building:
             if build_form.is_valid():
                 try:
-                    archive = build_proceedings(meeting, build_form.cleaned_data)
+                    build_proceedings(meeting, build_form.cleaned_data)
                 except ProceedingsError as exc:
                     build_form.add_error(None, str(exc))
                 else:
-                    archive.close()
-                    messages.success(request, '加工済みPDFを生成・公開しました。ZIPはダウンロードボタンから取得できます。')
+                    messages.success(request, '加工済みPDFを生成・公開しました。結合PDFはダウンロードボタンから取得できます。')
                     return redirect('procgen', year=year)
         elif form.is_valid():
-            for talk, upload in form.uploads:
-                old_name = talk.proceedings_file.name
-                storage = talk.proceedings_file.storage
-                talk.proceedings_file.save(upload.name, upload, save=False)
-                # Updating only this field avoids triggering session renumbering.
-                Presentation.objects.filter(pk=talk.pk).update(proceedings_file=talk.proceedings_file.name)
-                if old_name and old_name != talk.proceedings_file.name:
-                    storage.delete(old_name)
+            save_uploads(form.uploads)
             messages.success(request, f'{len(form.uploads)}件のPDFをアップロードしました。')
             return redirect('procgen', year=year)
     presentations = list(meeting.presentations.prefetch_related('authors').order_by('program_number', 'submission_number'))
@@ -86,15 +78,15 @@ def procgen(request, year):
 
 @login_required
 @require_http_methods(['GET', 'HEAD'])
-def proceedings_zip(request, year):
+def proceedings_download(request, year):
     _require_permissions(request.user, 'view_presentation')
     get_object_or_404(AnnualMeeting, start_date__year=year)
     try:
-        archive = download_archive(year)
+        pdf = download_pdf(year)
     except (FileNotFoundError, NotADirectoryError):
         raise Http404
-    return FileResponse(archive, as_attachment=True, filename=f'proceedings-{year}.zip',
-                        content_type='application/zip')
+    return FileResponse(pdf, as_attachment=True, filename=f'proceedings-{year}.pdf',
+                        content_type='application/pdf')
 
 
 @login_required

@@ -1278,8 +1278,6 @@ class ProceedingsBuildTests(TestCase):
     def test_layout_page_sequence_metadata_and_original_preserved(self):
         import fitz
         import json
-        from io import BytesIO
-        from zipfile import ZipFile
         self.assign(self.talk, 2)
         first = Presentation.objects.create(annual_meeting=self.meeting, submission_number='2',
             program_number='ZZ01', title='First', title_en='English title',
@@ -1293,26 +1291,35 @@ class ProceedingsBuildTests(TestCase):
         self.save_pdf(self.talk, self.pdf_bytes())
         self.save_pdf(self.other_talk, self.pdf_bytes())
         self.assertRedirects(self.build(), self.url)
-        response = self.client.get(reverse('proceedings_zip', args=[2027]))
+        response = self.client.get(reverse('proceedings_download', args=[2027]))
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response['Content-Type'], 'application/zip')
-        with ZipFile(BytesIO(b''.join(response.streaming_content))) as archive:
-            records = json.loads(archive.read('proceedings_list.json'))
-            self.assertEqual([(r['talk_id'], r['start_page']) for r in records],
-                             [('ZZ01', 10), ('FRP001', 12), ('ZZ02', None)])
-            self.assertEqual(archive.read('pdf_page_data.txt').decode(), '1\tZZ01\t10\n2\tFRP001\t12\n3\tZZ02\t\n')
-            with fitz.open(stream=archive.read('ZZ01/ZZ01.pdf'), filetype='pdf') as doc:
-                self.assertEqual(doc.page_count, 2)
-                self.assertEqual(tuple(doc[0].mediabox), (0, 0, 595, 791))
-                self.assertEqual(doc.metadata['title'], 'English title')
-                self.assertIn('Alice', doc.metadata['author'])
-                self.assertEqual(doc[0].get_label(), '10')
-                for i in range(2):
-                    text = doc[i].get_text()
-                    for expected in ['Original body', 'Proceedings of PASJ', 'September', 'PASJ2027  ZZ01', f'- {10+i} -']:
-                        self.assertIn(expected, text)
-                self.assertAlmostEqual(doc[0].search_for('PASJ2027  ZZ01')[0].x0, 58, places=1)
-                self.assertAlmostEqual(doc[1].search_for('PASJ2027  ZZ01')[0].x1, 537, places=1)
+        self.assertEqual(response['Content-Type'], 'application/pdf')
+        self.assertIn('proceedings-2027.pdf', response['Content-Disposition'])
+        with fitz.open(stream=b''.join(response.streaming_content), filetype='pdf') as merged:
+            self.assertEqual(merged.page_count, 3)
+            self.assertEqual([page.get_label() for page in merged], ['10', '11', '12'])
+            self.assertIn('ZZ01', merged[0].get_text())
+            self.assertIn('ZZ01', merged[1].get_text())
+            self.assertIn('FRP001', merged[2].get_text())
+            self.assertIn('- 12 -', merged[2].get_text())
+        from program.proceedings_publish import published_directory
+        directory = published_directory(2027)
+        records = json.loads((directory / 'proceedings_list.json').read_text())
+        self.assertEqual([(r['talk_id'], r['start_page']) for r in records],
+                         [('ZZ01', 10), ('FRP001', 12), ('ZZ02', None)])
+        self.assertEqual((directory / 'pdf_page_data.txt').read_text(), '1\tZZ01\t10\n2\tFRP001\t12\n3\tZZ02\t\n')
+        with fitz.open(directory / 'ZZ01.pdf') as doc:
+            self.assertEqual(doc.page_count, 2)
+            self.assertEqual(tuple(doc[0].mediabox), (0, 0, 595, 791))
+            self.assertEqual(doc.metadata['title'], 'English title')
+            self.assertIn('Alice', doc.metadata['author'])
+            self.assertEqual(doc[0].get_label(), '10')
+            for i in range(2):
+                text = doc[i].get_text()
+                for expected in ['Original body', 'Proceedings of PASJ', 'September', 'PASJ2027  ZZ01', f'- {10+i} -']:
+                    self.assertIn(expected, text)
+            self.assertAlmostEqual(doc[0].search_for('PASJ2027  ZZ01')[0].x0, 58, places=1)
+            self.assertAlmostEqual(doc[1].search_for('PASJ2027  ZZ01')[0].x1, 537, places=1)
         with first.proceedings_file.open('rb') as saved:
             self.assertEqual(saved.read(), original)
         repeated = self.build()
@@ -1424,12 +1431,12 @@ class ProceedingsBuildTests(TestCase):
 
 
     def test_download_is_separate_and_uses_published_snapshot(self):
-        url = reverse('proceedings_zip', args=[2027])
+        url = reverse('proceedings_download', args=[2027])
         self.assertEqual(self.client.get(url).status_code, 404)
         self.assign(self.talk)
         self.save_pdf(self.talk, self.pdf_bytes())
         self.assertRedirects(self.build(), self.url)
-        self.assertContains(self.client.get(self.url), '生成済みZIPをダウンロード')
+        self.assertContains(self.client.get(self.url), '結合PDFをダウンロード')
         # Uploaded originals may change without changing the downloadable publication.
         self.save_pdf(self.talk, b'%PDF-broken')
         self.user.user_permissions.remove(Permission.objects.get(
@@ -1437,13 +1444,13 @@ class ProceedingsBuildTests(TestCase):
         with patch('program.views.build_proceedings', side_effect=AssertionError('must not regenerate')):
             response = self.client.get(url)
         self.assertEqual(response.status_code, 200)
-        from io import BytesIO
-        from zipfile import ZipFile
-        with ZipFile(BytesIO(b''.join(response.streaming_content))) as bundle:
+        import fitz
+        with fitz.open(stream=b''.join(response.streaming_content), filetype='pdf') as merged:
             from program.proceedings_publish import published_directory
-            self.assertEqual(bundle.read('FRP0/FRP001.pdf'),
-                (published_directory(2027) / 'FRP001.pdf').read_bytes())
-        self.assertEqual(self.client.get(reverse('proceedings_zip', args=[2028])).status_code, 404)
+            with fitz.open(published_directory(2027) / 'FRP001.pdf') as source:
+                self.assertEqual(merged.page_count, source.page_count)
+                self.assertEqual(merged[0].get_text(), source[0].get_text())
+        self.assertEqual(self.client.get(reverse('proceedings_download', args=[2028])).status_code, 404)
         self.assertEqual(self.client.post(url).status_code, 405)
         self.user.user_permissions.clear()
         self.assertEqual(self.client.get(url).status_code, 403)

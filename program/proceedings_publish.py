@@ -1,58 +1,71 @@
 """Publish complete generations using an atomic directory symlink switch."""
 import os
+import json
 import re
 import shutil
 from pathlib import Path
-from tempfile import mkdtemp, TemporaryFile
+from contextlib import contextmanager
+from tempfile import mkdtemp, TemporaryFile, TemporaryDirectory
 from uuid import uuid4
-from zipfile import ZipFile, ZIP_DEFLATED
+from .proceedings_pdf import fitz
 
 from django.conf import settings
 
 CODE_PATTERN = r'[A-Za-z0-9_-]+'
+PAGE_DATA_FILE = 'pdf_page_data.txt'
+PROCEEDINGS_LIST_FILE = 'proceedings_list.json'
 
 
 def published_directory(year):
     return Path(settings.PROCEEDINGS_PUBLISH_ROOT) / str(year) / 'web_publish'
 
 
-def publish_archive(year, archive):
+@contextmanager
+def publication_directory(year):
+    """Stage a complete generation, publishing it only when the caller succeeds."""
     year_dir = published_directory(year).parent
     year_dir.mkdir(parents=True, exist_ok=True)
     generation = Path(mkdtemp(prefix='.proceedings-', dir=year_dir))
     pointer = year_dir / f'.publish-{uuid4().hex}'
     try:
-        archive.seek(0)
-        with ZipFile(archive) as bundle:
-            for entry in bundle.infolist():
-                name = Path(entry.filename).name
-                if name not in ('pdf_page_data.txt', 'proceedings_list.json') and not re.fullmatch(CODE_PATTERN + r'\.pdf', name):
-                    raise ValueError('Unexpected proceedings artifact')
-                with bundle.open(entry) as source, (generation / name).open('wb') as target:
-                    shutil.copyfileobj(source, target)
+        yield generation
         pointer.symlink_to(generation.name, target_is_directory=True)
         os.replace(pointer, published_directory(year))
     except Exception:
         pointer.unlink(missing_ok=True)
         shutil.rmtree(generation)
         raise
-    finally:
-        archive.seek(0)
 
 
-def download_archive(year):
-    # Resolve once so a concurrent publication cannot mix generations in the ZIP.
+def download_pdf(year):
+    # Resolve once so concurrent publication cannot mix generations.
     directory = published_directory(year).resolve(strict=True)
-    archive = TemporaryFile()
+    records = json.loads((directory / PROCEEDINGS_LIST_FILE).read_text(encoding='utf-8'))
+    result = TemporaryFile()
     try:
-        with ZipFile(archive, 'w', ZIP_DEFLATED) as bundle:
-            for path in sorted(directory.iterdir()):
-                if re.fullmatch(CODE_PATTERN + r'\.pdf', path.name):
-                    bundle.write(path, f'{path.stem[:4]}/{path.name}')
-            for name in ('pdf_page_data.txt', 'proceedings_list.json'):
-                bundle.write(directory / name, name)
-        archive.seek(0)
-        return archive
+        with fitz.open() as merged:
+            labels = []
+            for record in records:
+                if record['start_page'] is None:
+                    continue
+                code = record['talk_id']
+                if not re.fullmatch(CODE_PATTERN, code):
+                    raise ValueError('Invalid published program code')
+                with fitz.open(directory / f'{code}.pdf') as source:
+                    labels.append({'startpage': merged.page_count, 'prefix': '', 'style': 'D',
+                                   'firstpagenum': record['start_page']})
+                    merged.insert_pdf(source)
+            if not merged.page_count:
+                raise FileNotFoundError('No published PDFs')
+            merged.set_page_labels(labels)
+            merged.set_metadata({'title': f'PASJ{year} Proceedings'})
+            with TemporaryDirectory(prefix='pasj-merged-') as workdir:
+                output = Path(workdir) / 'proceedings.pdf'
+                merged.save(output, garbage=4, deflate=True)
+                with output.open('rb') as source:
+                    shutil.copyfileobj(source, result)
+        result.seek(0)
+        return result
     except Exception:
-        archive.close()
+        result.close()
         raise

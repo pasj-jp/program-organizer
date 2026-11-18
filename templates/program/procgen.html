@@ -27,11 +27,11 @@ body{font-family:system-ui,sans-serif;background:#f4f6f8;color:#17212b;margin:0}
 <p>採番・セッション割り当て済みの演題をプログラム出力順に処理します。取り消し演題もPDFがあれば含め、未アップロード演題にはページを割り当てません。未割り当て・未採番の演題は対象外です。</p>
 <p>元ビルダーと同じ595×791ptの用紙サイズに変更するため、原稿の端が切れる場合があります。生成後にレイアウトを確認してください。元PDFは変更しません。</p>
 <button type="submit">加工済みPDFを生成・公開</button>
-<p>生成が完了すると加工済みPDFをサーバーに保存し、ログイン不要の /{{ meeting.year }}/web_publish/講演番号.pdf で公開します。ZIPには加工済みPDF、pdf_page_data.txt、proceedings_list.jsonが入ります。編成やPDFを変更した場合は再生成してください。生成後に公開PDFのリンクが表示されます。</p>
+<p>生成が完了すると加工済みPDFをサーバーに保存し、ログイン不要の /{{ meeting.year }}/web_publish/講演番号.pdf で公開します。編成やPDFを変更した場合は再生成してください。生成後に公開PDFのリンクが表示されます。</p>
 </form>{% endif %}
-<form method="get" action="{% url 'proceedings_zip' meeting.year %}">
-<button type="submit"{% if not has_published_proceedings %} disabled{% endif %}>生成済みZIPをダウンロード</button>
-<p>{% if has_published_proceedings %}最後に生成・公開したPDFとページ一覧をダウンロードします。再生成は行いません。{% else %}先に加工済みPDFを生成してください。{% endif %}</p>
+<form method="get" action="{% url 'proceedings_download' meeting.year %}">
+<button type="submit"{% if not has_published_proceedings %} disabled{% endif %}>結合PDFをダウンロード</button>
+<p>{% if has_published_proceedings %}最後に生成・公開したPDFをプログラム順に結合し、1つのPDFとしてダウンロードします。再生成は行いません。{% else %}先に加工済みPDFを生成してください。{% endif %}</p>
 </form>
 <div class="table-wrap"><table>
 <caption>演題一覧（{{ presentations|length }}件）</caption>

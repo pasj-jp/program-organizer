@@ -14,6 +14,86 @@ python3 -m venv .venv
 
 管理画面は `http://127.0.0.1:8000/admin/`、公開タイムテーブルの年会一覧は `http://127.0.0.1:8000/`、編成画面の年会一覧は `http://127.0.0.1:8000/organize/` です。編成画面はログインと対応する権限が必要です。
 
+## 本番環境の PostgreSQL
+
+開発時は設定なしで従来の `db.sqlite3` を使用します。本番では `.env.example` を参考に、アプリの実行環境へ次の変数を設定してください（`.env` の自動読み込みはありません）。
+
+```bash
+export DJANGO_SETTINGS_MODULE=config.settings.production
+export DJANGO_DEBUG=0
+export DJANGO_SECRET_KEY='50文字以上のランダムな秘密鍵に置き換えてください'
+export DJANGO_ALLOWED_HOSTS=program.example.com
+export DJANGO_DB_ENGINE=postgresql
+export DJANGO_DB_NAME=program_org
+export DJANGO_DB_USER=program_org
+export DJANGO_DB_PASSWORD='DBユーザーのパスワード'
+export DJANGO_DB_HOST=127.0.0.1
+export DJANGO_DB_PORT=5432
+```
+
+DB管理者が、ログイン可能な専用ロール `program_org` と、そのロールを所有者とする UTF-8 のデータベース `program_org` を事前に作成します。アプリのロールにスーパーユーザー権限は不要です。リモートDBへ証明書検証付きTLS接続を行う場合は `DJANGO_DB_SSLMODE=verify-full`、必要に応じて `DJANGO_DB_SSLROOTCERT` にCA証明書のパスを指定します。ローカルのUnixソケット認証では `DJANGO_DB_HOST=''` としてパスワードを省略できます。
+
+```bash
+.venv/bin/pip install -r requirements.txt
+.venv/bin/python manage.py migrate
+.venv/bin/python manage.py createsuperuser
+.venv/bin/python manage.py collectstatic --noinput
+.venv/bin/python manage.py check --deploy
+```
+
+新規DBの場合は上記で初期化します。既存データを移行する場合は下の手順を使ってください。接続失敗時や不正なDB種別指定時にSQLiteへ自動切り替えはしません。`DJANGO_DB_ENGINE` の値は `sqlite` または `postgresql` です。SQLiteの保存先も `DJANGO_DB_NAME` で指定できます。
+
+本番のアプリ起動にはGunicorn等のWSGIサーバーを使用し、HTTPS、静的ファイル配信、セキュアCookie等をデプロイ設定で構成してください。`check --deploy` の指摘は構成に合わせて解消してください。PostgreSQL対応ドライバーは [Djangoのデータベース仕様](https://docs.djangoproject.com/en/4.2/ref/databases/#postgresql-notes) に従い psycopg 3 を使用しています。
+
+### 本番設定モジュール
+
+`DJANGO_SETTINGS_MODULE=config.settings.production` を管理コマンドとGunicornの両方に設定します。共通設定は `config/settings/base.py`、開発用は `config.settings.development` にあります。従来の `config.settings` も開発用として使用できます。
+
+本番では `DJANGO_DEBUG` に関係なく `DEBUG=False` となり、50文字以上の秘密鍵と明示的な `DJANGO_ALLOWED_HOSTS` が必須です。秘密鍵は `.venv/bin/python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'` で生成できます。生成した値を安全に環境変数へ保存してください。DB種別を省略するとPostgreSQLを使用し、DB名とユーザー名も必須です。移行元を読む場合に限り `DJANGO_DB_ENGINE=sqlite` と保存先を明示できます。
+
+HTTPSリダイレクト、セキュアCookie、HSTS（初期値3600秒）が有効です。HSTSの調整には `DJANGO_SECURE_HSTS_SECONDS`、全サブドメインへの適用とpreloadには `DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS=1`、`DJANGO_SECURE_HSTS_PRELOAD=1` を使用します。後二者は初期値では無効です。リバースプロキシが `X-Forwarded-Proto` を必ず上書きし、Djangoへの直接アクセスを制限した環境では `DJANGO_TRUST_PROXY_SSL_HEADER=1` を指定します。TLS終端プロキシでこの設定を省略するとリダイレクトが繰り返されます。
+
+必要な信頼済みオリジンは `DJANGO_CSRF_TRUSTED_ORIGINS=https://program.example.com` のようにカンマ区切りで指定します。静的ファイルとメディアの保存先は `DJANGO_STATIC_ROOT`、`DJANGO_MEDIA_ROOT` で変更できます。原稿用の `PROCEEDINGS_ROOT` は未指定時に `MEDIA_ROOT` を使用します。本番メール送信の初期値はSMTPです。
+
+```bash
+# 上記の秘密鍵・ホスト・DB設定も同じ実行環境へ設定してから実行
+export DJANGO_SETTINGS_MODULE=config.settings.production
+.venv/bin/python manage.py check --deploy
+.venv/bin/gunicorn config.wsgi:application --bind 127.0.0.1:8000 --workers 2 --timeout 360
+```
+
+設定項目の背景は [Djangoのデプロイチェックリスト](https://docs.djangoproject.com/en/4.2/howto/deployment/checklist/) を参照してください。
+
+### SQLiteから既存データを移行
+
+1. アプリとDBへの書き込みを停止し、SQLiteファイルと原稿PDF・公開PDFをバックアップします。移行・確認が完了するまで停止を維持します。
+2. **移行元のSQLite設定のまま**、最新のマイグレーションを適用して全データを出力します。出力先はアクセスを制限したバックアップ用ディレクトリを指定してください。
+
+   ```bash
+   .venv/bin/python manage.py migrate
+   .venv/bin/python manage.py dumpdata --all --natural-foreign --natural-primary --exclude contenttypes --exclude auth.permission --indent 2 --output /secure/backup/program-data.json
+   ```
+
+3. 上記のPostgreSQL環境変数へ切り替え、**新規の空のDB**へ取り込みます。先に `createsuperuser` は実行しません。ユーザー・権限・編成データも移行対象です。
+
+   ```bash
+   .venv/bin/python manage.py migrate
+   .venv/bin/python manage.py loaddata /secure/backup/program-data.json
+   .venv/bin/python manage.py check
+   ```
+
+4. 年会・演題・著者の件数、ログインと権限、取り消し演題、番号・並び順、Excel出力を確認します。原稿ファイルはDBダンプに含まれないため、保存先を変更する場合は相対パスを維持して別途コピーします。確認後、PostgreSQL設定でサービスを再開します。JSONには個人情報やパスワードハッシュが含まれるので、確認後は安全に保管または削除してください。
+
+失敗時はサービスを停止したまま移行先を調査し、必要ならバックアップ済みSQLiteの設定へ戻します。切り替え後にPostgreSQLへ書き込まれたデータはSQLiteへ自動反映されません。本番バックアップは `pg_dump` と原稿・公開PDFの両方を対象にしてください。
+
+### Ansibleを使用する場合
+
+`infra-ansible/roles/prog_gen` も同じ環境変数を使用します。インベントリで `prog_gen_db_engine: postgresql`、`prog_gen_db_name: program_org`、`prog_gen_db_user: program_org`、`prog_gen_db_password`、`prog_gen_db_host` を設定してください。パスワードはAnsible Vault等で管理します。TLS設定には `prog_gen_db_sslmode` と `prog_gen_db_sslrootcert` を使用します。ロールはDBやDBユーザーを作成しないため、事前に用意してください。既存環境への意図しない切り替えを避けるため、ロールの初期値は従来の共有ディレクトリ内のSQLiteです。データ移行は自動実行されません。
+
+### DB別のテスト
+
+`.venv/bin/python manage.py test` は現在のDB設定でテスト専用DBを作成します。PostgreSQLで実行する際は、本番と別の検証用ロール・DBを使用し、ロールにテストDB作成用の `CREATEDB` 権限を付与してください。GitHub ActionsではSQLiteとPostgreSQLの両方で同じテストを実行します。
+
 ## 操作
 
 1. 管理画面の「年会情報」で年会名、略称、会期の開始日・終了日、会場を登録します。URLには会期開始日の年を使い、2026年の年会なら編成画面は `/organize/2026/`、公開タイムテーブルは `/2026/` です。同じ年に2件の年会は登録できません。略称はURLには使いません。
@@ -94,6 +174,7 @@ python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 .venv/bin/pip install gunicorn
 export DJANGO_SECRET_KEY='環境ごとに生成した十分に長いランダムな秘密値に置換'
+export DJANGO_SETTINGS_MODULE=config.settings.production
 export DJANGO_DEBUG=0
 export DJANGO_ALLOWED_HOSTS='program.example.jp'
 export VIVLIOSTYLE_CLI=/usr/bin/vivliostyle
@@ -179,7 +260,7 @@ location / {
 }
 ```
 
-アップロードサイズは複数PDFの合計に合わせて調整します。HTTPS終端後のスキーム認識が必要なため、信頼するプロキシが上記ヘッダーを必ず上書きする構成で、Djangoの本番設定に `SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')` を設定します。HTTPS運用時は `SESSION_COOKIE_SECURE = True`、`CSRF_COOKIE_SECURE = True` も設定してください。`check --deploy` の残りの指摘は運用環境に応じて確認します。
+アップロードサイズは複数PDFの合計に合わせて調整します。HTTPS終端後のスキーム認識が必要なため、信頼するプロキシが上記ヘッダーを必ず上書きする構成で、`config.settings.production` を使用して `DJANGO_TRUST_PROXY_SSL_HEADER=1` を設定します。セキュアCookieは本番設定で有効になります。`check --deploy` の残りの指摘は運用環境に応じて確認します。
 
 AlmaLinuxのSELinuxが有効な場合は、Nginxからのバックエンド接続と静的ファイルの読み取りを許可するポリシー・ファイルラベルを設定します。DB・`PROCEEDINGS_ROOT` はWebサーバーから直接配信しません。
 
@@ -199,9 +280,9 @@ PDFを複数選択するか、アップロード欄へまとめてドラッグ�
 
 `pasj_proceedings_builder/pdf-processing` のPDF加工処理を `program/proceedings_pdf.py` に取り込んでいます。青字の2行ヘッダー、巻名と講演番号（奇数ページは右、偶数ページは左）、中央の通しページ番号、英語の題目・著者メタデータ、PDFページラベルを付与します。元仕様と同じ595×791ptに用紙サイズを変更するため、原稿の端が切れる場合があります。生成したPDFを確認してから公開してください。欧文フォントを使うため、画面の文言は半角英数字・記号で指定します。
 
-対象は選択した年会の採番・セッション割り当て済みの演題で、`program.xlsx` / JSONと同じセッション・演題順に通しページを振ります。取り消し演題もPDFがあれば含めます。未アップロード演題は一覧に残して開始ページを空欄／`null` とし、ページを消費しません。未割り当て・未採番の演題は対象外です。破損・パスワード付きPDFなどで加工に失敗した場合は演題コード付きのエラーを表示し、途中のZIPは返しません。
+対象は選択した年会の採番・セッション割り当て済みの演題で、`program.xlsx` / JSONと同じセッション・演題順に通しページを振ります。取り消し演題もPDFがあれば含めます。未アップロード演題は一覧に残して開始ページを空欄／`null` とし、ページを消費しません。未割り当て・未採番の演題は対象外です。破損・パスワード付きPDFなどで加工に失敗した場合は演題コード付きのエラーを表示し、前回の公開内容を維持します。
 
-ZIPには `<講演番号の先頭4文字>/<講演番号>.pdf`、`pdf_page_data.txt`、`proceedings_list.json` が入ります。元PDFは変更せず、加工結果はサーバーに保存・公開します。「生成済みZIPをダウンロード」は別ボタンで、最後に公開したPDFとページ一覧を取得します。ダウンロード時には再生成しません。未生成の場合はダウンロードボタンが無効になります。ZIPの取得にはログインと演題の閲覧権限が必要です。再アップロード・編成変更・再採番後は再生成してください。既存のアップロード済みリンクからは引き続き元PDFを取得できます。
+元PDFは変更せず、加工結果はサーバーに保存・公開します。「結合PDFをダウンロード」は別ボタンで、最後に公開した個別PDFを `proceedings_list.json` のプログラム順に結合し、`proceedings-<年>.pdf` として取得します。未アップロード演題はスキップし、印刷済みの通しページ番号とPDFページラベルを保持します。ZIPではなく1つのPDFを返し、ヘッダー・フッターの再生成は行いません。未生成の場合はダウンロードボタンが無効になります。取得にはログインと演題の閲覧権限が必要です。再アップロード・編成変更・再採番後は再生成してください。個別の公開PDFとサーバー上のページ一覧は引き続き保持し、結合PDFはダウンロード時だけ作成します。既存のアップロード済みリンクからは元PDFを取得できます。
 
 加工済みPDFの公開URLは `http://localhost:8000/2026/web_publish/FROA001.pdf` の形式です。ログイン不要でブラウザにPDFを表示します。生成後に演題一覧に「公開PDF」リンクが現れます。この公開はタイムテーブルの公開設定とは独立しており、生成ボタンを押すと公開まで実行します。
 

@@ -1,16 +1,18 @@
-"""Build a downloadable batch without modifying submitted PDFs."""
+"""Generate and publish proceedings without modifying submitted PDFs."""
 import json
 import logging
 import re
 import shutil
 from pathlib import Path
-from tempfile import TemporaryDirectory, TemporaryFile
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
-from zipfile import ZipFile, ZIP_DEFLATED
 
 from django.conf import settings
 
-from .proceedings_publish import publish_archive
+from .models import Presentation
+from .proceedings_publish import (
+    CODE_PATTERN, PAGE_DATA_FILE, PROCEEDINGS_LIST_FILE, publication_directory,
+)
 from .program_data import iter_program_rows
 from .proceedings_pdf import process_pdf
 from .program_print import strip_html
@@ -28,56 +30,75 @@ def header_defaults(meeting):
     return dict(configs.get(str(meeting.year), {'volume': f'PASJ{meeting.year}'}), start_page=1)
 
 
-def build_proceedings(meeting, options):
-    # Same sequence as program.xlsx / abstracts.json; facility reports appear once.
+def save_uploads(uploads):
+    for talk, upload in uploads:
+        old_name = talk.proceedings_file.name
+        storage = talk.proceedings_file.storage
+        talk.proceedings_file.save(upload.name, upload, save=False)
+        # Updating only this field avoids triggering session renumbering.
+        Presentation.objects.filter(pk=talk.pk).update(proceedings_file=talk.proceedings_file.name)
+        if old_name and old_name != talk.proceedings_file.name:
+            storage.delete(old_name)
+
+
+def ordered_presentations(meeting):
+    """Match program.xlsx / abstracts.json order, including facility reports once."""
     talks = {talk.submission_number: talk for talk in meeting.presentations.filter(
         session__isnull=False).prefetch_related('authors')}
-    ordered = [talks[row[2]] for row in iter_program_rows(meeting) if row[2] in talks and row[8]]
+    return [talks[row[2]] for row in iter_program_rows(meeting) if row[2] in talks and row[8]]
+
+
+def paper_metadata(talk):
+    if talk.author_text_en:
+        authors = re.sub(r'\s+', ' ', strip_html(talk.author_text_en).replace('○', '')).strip()
+    else:
+        authors = ', '.join(
+            ' '.join(filter(None, [author.given_name_en, author.middle_name, author.family_name_en]))
+            for author in talk.authors.all())
+    return SimpleNamespace(talk_id=talk.program_number, title_en=talk.title_en, authors_en=authors)
+
+
+def process_presentation(talk, directory, source, start_page, options):
+    code = talk.program_number
+    if not re.fullmatch(CODE_PATTERN, code):
+        raise ProceedingsError(f'{code}: PDF出力用のプログラムコードは半角英数字・ハイフン・アンダースコアにしてください。')
+    try:
+        with talk.proceedings_file.open('rb') as uploaded, source.open('wb') as target:
+            shutil.copyfileobj(uploaded, target)
+        return process_pdf(
+            source, directory / f'{code}.pdf', paper_metadata(talk), start_page,
+            options['volume'], options['header1'], options['header2'],
+            Path(settings.PROCEEDINGS_FONT_DIR), False)
+    except Exception as exc:
+        logger.warning('Proceedings PDF processing failed: meeting=%s talk=%s',
+                       talk.annual_meeting_id, talk.pk, exc_info=True)
+        raise ProceedingsError(f'{code}: PDFを加工できません。PDFの破損・暗号化、保存ファイル、フォント設定を確認してください。') from exc
+
+
+def write_page_lists(directory, records):
+    lines = [f"{record['index']}\t{record['talk_id']}\t{record['start_page'] if record['start_page'] is not None else ''}\n"
+             for record in records]
+    (directory / PAGE_DATA_FILE).write_text(''.join(lines), encoding='utf-8')
+    (directory / PROCEEDINGS_LIST_FILE).write_text(
+        json.dumps(records, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+
+
+def build_proceedings(meeting, options):
+    ordered = ordered_presentations(meeting)
     if not any(talk.proceedings_file for talk in ordered):
         raise ProceedingsError('採番・セッション割り当て済みの演題にPDFがありません。')
-    archive = TemporaryFile()
     try:
-        with TemporaryDirectory(prefix='pasj-proceedings-') as directory, ZipFile(archive, 'w', ZIP_DEFLATED) as bundle:
-            workdir = Path(directory)
+        with publication_directory(meeting.year) as directory, TemporaryDirectory(prefix='pasj-proceedings-') as workdir:
             next_page = options['start_page']
             records = []
-            lines = []
             for index, talk in enumerate(ordered, 1):
-                code = talk.program_number
                 start_page = None
                 if talk.proceedings_file:
-                    if not re.fullmatch(r'[A-Za-z0-9_-]+', code):
-                        raise ProceedingsError(f'{code}: PDF出力用のプログラムコードは半角英数字・ハイフン・アンダースコアにしてください。')
-                    paper = SimpleNamespace(talk_id=code, title_en=talk.title_en,
-                        authors_en=re.sub(r'\s+', ' ', strip_html(talk.author_text_en).replace('○', '')).strip() if talk.author_text_en else ', '.join(
-                            ' '.join(filter(None, [a.given_name_en, a.middle_name, a.family_name_en]))
-                            for a in talk.authors.all()))
-                    try:
-                        source = workdir / 'source.pdf'
-                        output = workdir / 'output.pdf'
-                        with talk.proceedings_file.open('rb') as uploaded, source.open('wb') as target:
-                            shutil.copyfileobj(uploaded, target)
-                        pages = process_pdf(source, output, paper, next_page,
-                            options['volume'], options['header1'], options['header2'],
-                            Path(settings.PROCEEDINGS_FONT_DIR), False)
-                        bundle.write(output, f'{code[:4]}/{code}.pdf')
-                        output.unlink()
-                    except Exception as exc:
-                        logger.warning('Proceedings PDF processing failed: meeting=%s talk=%s', meeting.pk, talk.pk, exc_info=True)
-                        raise ProceedingsError(f'{code}: PDFを加工できません。PDFの破損・暗号化、保存ファイル、フォント設定を確認してください。') from exc
                     start_page = next_page
-                    next_page += pages
-                records.append({'index': index, 'talk_id': code, 'start_page': start_page})
-                lines.append(f'{index}\t{code}\t{start_page if start_page is not None else ""}\n')
-            bundle.writestr('pdf_page_data.txt', ''.join(lines))
-            bundle.writestr('proceedings_list.json', json.dumps(records, ensure_ascii=False, indent=2) + '\n')
-        try:
-            publish_archive(meeting.year, archive)
-        except OSError as exc:
-            logger.warning('Proceedings publication failed: meeting=%s', meeting.pk, exc_info=True)
-            raise ProceedingsError('加工済みPDFを保存できません。管理者は公開先の保存パスと書き込み権限を確認してください。') from exc
-        archive.seek(0)
-        return archive
-    except Exception:
-        archive.close()
-        raise
+                    next_page += process_presentation(
+                        talk, directory, Path(workdir) / 'source.pdf', start_page, options)
+                records.append({'index': index, 'talk_id': talk.program_number, 'start_page': start_page})
+            write_page_lists(directory, records)
+    except OSError as exc:
+        logger.warning('Proceedings publication failed: meeting=%s', meeting.pk, exc_info=True)
+        raise ProceedingsError('加工済みPDFを保存できません。管理者は公開先の保存パスと書き込み権限を確認してください。') from exc
