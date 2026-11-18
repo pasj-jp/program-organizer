@@ -21,11 +21,11 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
-      DJANGO_DB_ENGINE: ${{ matrix.database }}
-      DJANGO_DB_NAME: ${{ matrix.database == 'postgresql' && 'program_org' || 'db.sqlite3' }}
-      DJANGO_DB_USER: program_org
-      DJANGO_DB_PASSWORD: test-only-password
-      DJANGO_DB_HOST: 127.0.0.1
+      PROGRAM_DB_ENGINE: ${{ matrix.database }}
+      PROGRAM_DB_NAME: ${{ matrix.database == 'postgresql' && 'program_org' || 'db.sqlite3' }}
+      PROGRAM_DB_USER: program_org
+      PROGRAM_DB_PASSWORD: test-only-password
+      PROGRAM_DB_HOST: 127.0.0.1
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

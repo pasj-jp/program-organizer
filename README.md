@@ -20,18 +20,18 @@ python3 -m venv .venv
 
 ```bash
 export DJANGO_SETTINGS_MODULE=config.settings.production
-export DJANGO_DEBUG=0
-export DJANGO_SECRET_KEY='50文字以上のランダムな秘密鍵に置き換えてください'
-export DJANGO_ALLOWED_HOSTS=program.example.com
-export DJANGO_DB_ENGINE=postgresql
-export DJANGO_DB_NAME=program_org
-export DJANGO_DB_USER=program_org
-export DJANGO_DB_PASSWORD='DBユーザーのパスワード'
-export DJANGO_DB_HOST=127.0.0.1
-export DJANGO_DB_PORT=5432
+export PROGRAM_DEBUG=0
+export PROGRAM_SECRET_KEY='50文字以上のランダムな秘密鍵に置き換えてください'
+export PROGRAM_ALLOWED_HOSTS=program.example.com
+export PROGRAM_DB_ENGINE=postgresql
+export PROGRAM_DB_NAME=program_org
+export PROGRAM_DB_USER=program_org
+export PROGRAM_DB_PASSWORD='DBユーザーのパスワード'
+export PROGRAM_DB_HOST=127.0.0.1
+export PROGRAM_DB_PORT=5432
 ```
 
-DB管理者が、ログイン可能な専用ロール `program_org` と、そのロールを所有者とする UTF-8 のデータベース `program_org` を事前に作成します。アプリのロールにスーパーユーザー権限は不要です。リモートDBへ証明書検証付きTLS接続を行う場合は `DJANGO_DB_SSLMODE=verify-full`、必要に応じて `DJANGO_DB_SSLROOTCERT` にCA証明書のパスを指定します。ローカルのUnixソケット認証では `DJANGO_DB_HOST=''` としてパスワードを省略できます。
+DB管理者が、ログイン可能な専用ロール `program_org` と、そのロールを所有者とする UTF-8 のデータベース `program_org` を事前に作成します。アプリのロールにスーパーユーザー権限は不要です。リモートDBへ証明書検証付きTLS接続を行う場合は `PROGRAM_DB_SSLMODE=verify-full`、必要に応じて `PROGRAM_DB_SSLROOTCERT` にCA証明書のパスを指定します。ローカルのUnixソケット認証では `PROGRAM_DB_HOST=''` としてパスワードを省略できます。
 
 ```bash
 .venv/bin/pip install -r requirements.txt
@@ -41,7 +41,7 @@ DB管理者が、ログイン可能な専用ロール `program_org` と、その
 .venv/bin/python manage.py check --deploy
 ```
 
-新規DBの場合は上記で初期化します。既存データを移行する場合は下の手順を使ってください。接続失敗時や不正なDB種別指定時にSQLiteへ自動切り替えはしません。`DJANGO_DB_ENGINE` の値は `sqlite` または `postgresql` です。SQLiteの保存先も `DJANGO_DB_NAME` で指定できます。
+新規DBの場合は上記で初期化します。既存データを移行する場合は下の手順を使ってください。接続失敗時や不正なDB種別指定時にSQLiteへ自動切り替えはしません。`PROGRAM_DB_ENGINE` の値は `sqlite` または `postgresql` です。SQLiteの保存先も `PROGRAM_DB_NAME` で指定できます。
 
 本番のアプリ起動にはGunicorn等のWSGIサーバーを使用し、HTTPS、静的ファイル配信、セキュアCookie等をデプロイ設定で構成してください。`check --deploy` の指摘は構成に合わせて解消してください。PostgreSQL対応ドライバーは [Djangoのデータベース仕様](https://docs.djangoproject.com/en/4.2/ref/databases/#postgresql-notes) に従い psycopg 3 を使用しています。
 
@@ -49,11 +49,11 @@ DB管理者が、ログイン可能な専用ロール `program_org` と、その
 
 `DJANGO_SETTINGS_MODULE=config.settings.production` を管理コマンドとGunicornの両方に設定します。共通設定は `config/settings/base.py`、開発用は `config.settings.development` にあります。従来の `config.settings` も開発用として使用できます。
 
-本番では `DJANGO_DEBUG` に関係なく `DEBUG=False` となり、50文字以上の秘密鍵と明示的な `DJANGO_ALLOWED_HOSTS` が必須です。秘密鍵は `.venv/bin/python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'` で生成できます。生成した値を安全に環境変数へ保存してください。DB種別を省略するとPostgreSQLを使用し、DB名とユーザー名も必須です。移行元を読む場合に限り `DJANGO_DB_ENGINE=sqlite` と保存先を明示できます。
+本番では `PROGRAM_DEBUG` に関係なく `DEBUG=False` となり、50文字以上の秘密鍵と明示的な `PROGRAM_ALLOWED_HOSTS` が必須です。秘密鍵は `.venv/bin/python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'` で生成できます。生成した値を安全に環境変数へ保存してください。DB種別を省略するとPostgreSQLを使用し、DB名とユーザー名も必須です。移行元を読む場合に限り `PROGRAM_DB_ENGINE=sqlite` と保存先を明示できます。
 
-HTTPSリダイレクト、セキュアCookie、HSTS（初期値3600秒）が有効です。HSTSの調整には `DJANGO_SECURE_HSTS_SECONDS`、全サブドメインへの適用とpreloadには `DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS=1`、`DJANGO_SECURE_HSTS_PRELOAD=1` を使用します。後二者は初期値では無効です。リバースプロキシが `X-Forwarded-Proto` を必ず上書きし、Djangoへの直接アクセスを制限した環境では `DJANGO_TRUST_PROXY_SSL_HEADER=1` を指定します。TLS終端プロキシでこの設定を省略するとリダイレクトが繰り返されます。
+HTTPSリダイレクト、セキュアCookie、HSTS（初期値3600秒）が有効です。HSTSの調整には `PROGRAM_SECURE_HSTS_SECONDS`、全サブドメインへの適用とpreloadには `PROGRAM_SECURE_HSTS_INCLUDE_SUBDOMAINS=1`、`PROGRAM_SECURE_HSTS_PRELOAD=1` を使用します。後二者は初期値では無効です。リバースプロキシが `X-Forwarded-Proto` を必ず上書きし、Djangoへの直接アクセスを制限した環境では `PROGRAM_TRUST_PROXY_SSL_HEADER=1` を指定します。TLS終端プロキシでこの設定を省略するとリダイレクトが繰り返されます。
 
-必要な信頼済みオリジンは `DJANGO_CSRF_TRUSTED_ORIGINS=https://program.example.com` のようにカンマ区切りで指定します。静的ファイルとメディアの保存先は `DJANGO_STATIC_ROOT`、`DJANGO_MEDIA_ROOT` で変更できます。原稿用の `PROCEEDINGS_ROOT` は未指定時に `MEDIA_ROOT` を使用します。本番メール送信の初期値はSMTPです。
+必要な信頼済みオリジンは `PROGRAM_CSRF_TRUSTED_ORIGINS=https://program.example.com` のようにカンマ区切りで指定します。静的ファイルとメディアの保存先は `PROGRAM_STATIC_ROOT`、`PROGRAM_MEDIA_ROOT` で変更できます。原稿用の `PROCEEDINGS_ROOT` は未指定時に `MEDIA_ROOT` を使用します。本番メール送信の初期値はSMTPです。
 
 ```bash
 # 上記の秘密鍵・ホスト・DB設定も同じ実行環境へ設定してから実行
@@ -173,10 +173,10 @@ WSLでもNode.jsとVivliostyleはLinux側に導入します。`command -v vivlio
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 .venv/bin/pip install gunicorn
-export DJANGO_SECRET_KEY='環境ごとに生成した十分に長いランダムな秘密値に置換'
+export PROGRAM_SECRET_KEY='環境ごとに生成した十分に長いランダムな秘密値に置換'
 export DJANGO_SETTINGS_MODULE=config.settings.production
-export DJANGO_DEBUG=0
-export DJANGO_ALLOWED_HOSTS='program.example.jp'
+export PROGRAM_DEBUG=0
+export PROGRAM_ALLOWED_HOSTS='program.example.jp'
 export VIVLIOSTYLE_CLI=/usr/bin/vivliostyle
 export PROGRAM_PDF_TIMEOUT=300
 # 保存先を変更する場合は、実行ユーザーが書き込めるディレクトリを用意する
@@ -260,7 +260,7 @@ location / {
 }
 ```
 
-アップロードサイズは複数PDFの合計に合わせて調整します。HTTPS終端後のスキーム認識が必要なため、信頼するプロキシが上記ヘッダーを必ず上書きする構成で、`config.settings.production` を使用して `DJANGO_TRUST_PROXY_SSL_HEADER=1` を設定します。セキュアCookieは本番設定で有効になります。`check --deploy` の残りの指摘は運用環境に応じて確認します。
+アップロードサイズは複数PDFの合計に合わせて調整します。HTTPS終端後のスキーム認識が必要なため、信頼するプロキシが上記ヘッダーを必ず上書きする構成で、`config.settings.production` を使用して `PROGRAM_TRUST_PROXY_SSL_HEADER=1` を設定します。セキュアCookieは本番設定で有効になります。`check --deploy` の残りの指摘は運用環境に応じて確認します。
 
 AlmaLinuxのSELinuxが有効な場合は、Nginxからのバックエンド接続と静的ファイルの読み取りを許可するポリシー・ファイルラベルを設定します。DB・`PROCEEDINGS_ROOT` はWebサーバーから直接配信しません。
 
@@ -315,7 +315,7 @@ PDFを複数選択するか、アップロード欄へまとめてドラッグ�
 
 再インポートでは演題登録番号で同一演題を判定し、Excel由来の演題・著者情報を更新します。管理画面で修正した著者欄と元データ欄も、再インポート時にExcelの内容で上書きされます。編成情報、状態、メモは保持します。Excelに存在しなくなった演題は削除しません。
 
-本番運用時は `DJANGO_SECRET_KEY`、`DJANGO_DEBUG=0`、`DJANGO_ALLOWED_HOSTS` を設定してください。Excelには個人情報が含まれるため、管理画面のアカウントとファイルの保管に注意してください。
+本番運用時は `PROGRAM_SECRET_KEY`、`PROGRAM_DEBUG=0`、`PROGRAM_ALLOWED_HOSTS` を設定してください。Excelには個人情報が含まれるため、管理画面のアカウントとファイルの保管に注意してください。
 
 セッション編成画面では、セッション情報の横の鉛筆アイコンからポップアップで編集できます。口頭発表では同じポップアップ内でカテゴリーごとの座長も編集し、まとめて保存できます。セッションの変更権限が必要です。
 
@@ -325,19 +325,19 @@ PDFを複数選択するか、アップロード欄へまとめてドラッグ�
 
 パスワードを忘れた場合は、ログイン画面の「パスワードを忘れた方はこちら」から登録メールアドレスを入力します。メール内のリンクから新しいパスワードを設定し、再度ログインしてください。リンクは1時間有効で、変更後は再利用できません。事前に管理画面の「ユーザー」で各利用者のメールアドレスを登録してください。未登録のアドレスや無効なアカウントには送信せず、画面上は同じ案内を表示します。
 
-開発時（`DJANGO_DEBUG=1`）の初期設定ではメールを実送信せず、`runserver` のターミナルに本文と再設定URLを出力します。実際にメールを送る場合は、起動前にSMTP設定を環境変数として設定してください。
+開発時（`PROGRAM_DEBUG=1`）の初期設定ではメールを実送信せず、`runserver` のターミナルに本文と再設定URLを出力します。実際にメールを送る場合は、起動前にSMTP設定を環境変数として設定してください。
 
 ```bash
-export DJANGO_EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
-export DJANGO_EMAIL_HOST=smtp.example.com
-export DJANGO_EMAIL_PORT=587
-export DJANGO_EMAIL_HOST_USER=your-smtp-user
-export DJANGO_EMAIL_HOST_PASSWORD='your-smtp-password'
-export DJANGO_EMAIL_USE_TLS=1
-export DJANGO_EMAIL_USE_SSL=0
-export DJANGO_DEFAULT_FROM_EMAIL='プログラム編成システム <noreply@example.com>'
+export PROGRAM_EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
+export PROGRAM_EMAIL_HOST=smtp.example.com
+export PROGRAM_EMAIL_PORT=587
+export PROGRAM_EMAIL_HOST_USER=your-smtp-user
+export PROGRAM_EMAIL_HOST_PASSWORD='your-smtp-password'
+export PROGRAM_EMAIL_USE_TLS=1
+export PROGRAM_EMAIL_USE_SSL=0
+export PROGRAM_DEFAULT_FROM_EMAIL='プログラム編成システム <noreply@example.com>'
 ```
 
-SMTPサービスから指定された値に置き換えてください。SSL接続（通常465番ポート）を使用する場合は `DJANGO_EMAIL_USE_TLS=0` と `DJANGO_EMAIL_USE_SSL=1` にします。`.env` ファイルの自動読み込みはありません。デプロイ環境の環境変数設定等を使用してください。
+SMTPサービスから指定された値に置き換えてください。SSL接続（通常465番ポート）を使用する場合は `PROGRAM_EMAIL_USE_TLS=0` と `PROGRAM_EMAIL_USE_SSL=1` にします。`.env` ファイルの自動読み込みはありません。デプロイ環境の環境変数設定等を使用してください。
 
-本番環境では `DJANGO_DEBUG=0`、固有の `DJANGO_SECRET_KEY`、公開ホスト名を列挙した `DJANGO_ALLOWED_HOSTS` とSMTP設定を指定します。再設定URLはアクセスしたホスト名・HTTP/HTTPSから生成するため、利用者がアクセスできる公開HTTPS URLから申請してください。リバースプロキシを使用する場合は、Djangoが元のHTTPS接続を正しく判定できるようにプロキシ構成に合わせて設定してください。
+本番環境では `PROGRAM_DEBUG=0`、固有の `PROGRAM_SECRET_KEY`、公開ホスト名を列挙した `PROGRAM_ALLOWED_HOSTS` とSMTP設定を指定します。再設定URLはアクセスしたホスト名・HTTP/HTTPSから生成するため、利用者がアクセスできる公開HTTPS URLから申請してください。リバースプロキシを使用する場合は、Djangoが元のHTTPS接続を正しく判定できるようにプロキシ構成に合わせて設定してください。

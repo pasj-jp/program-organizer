@@ -11,10 +11,10 @@ from django.test import SimpleTestCase
 class SettingsTests(SimpleTestCase):
     def load(self, module='config.settings.production', **overrides):
         env = {key: value for key, value in os.environ.items()
-               if not key.startswith(('DJANGO_', 'PROCEEDINGS_'))}
-        env.update(DJANGO_SECRET_KEY='test-only-secret-abcdefghijklmnopqrstuvwxyz-0123456789',
-                   DJANGO_ALLOWED_HOSTS=' program.example.com, ,www.example.com ',
-                   DJANGO_DB_NAME='program', DJANGO_DB_USER='program')
+               if not key.startswith(('DJANGO_', 'PROGRAM_', 'PROCEEDINGS_'))}
+        env.update(PROGRAM_SECRET_KEY='test-only-secret-abcdefghijklmnopqrstuvwxyz-0123456789',
+                   PROGRAM_ALLOWED_HOSTS=' program.example.com, ,www.example.com ',
+                   PROGRAM_DB_NAME='program', PROGRAM_DB_USER='program')
         env.update(overrides)
         code = '''import importlib, json, sys
 s = importlib.import_module(sys.argv[1])
@@ -27,7 +27,7 @@ print(json.dumps({name: getattr(s, name, None) for name in names}, default=str))
                               capture_output=True, text=True, timeout=15)
 
     def test_production_defaults_and_paths(self):
-        result = self.load(DJANGO_DEBUG='1')
+        result = self.load(PROGRAM_DEBUG='1')
         self.assertEqual(result.returncode, 0, result.stderr)
         settings = json.loads(result.stdout)
         self.assertFalse(settings['DEBUG'])
@@ -40,16 +40,16 @@ print(json.dumps({name: getattr(s, name, None) for name in names}, default=str))
         self.assertIsNone(settings['SECURE_PROXY_SSL_HEADER'])
 
     def test_missing_or_unsafe_required_settings(self):
-        for env in [dict(DJANGO_SECRET_KEY=''), dict(DJANGO_SECRET_KEY='development-only-change-this-key'),
-                    dict(DJANGO_ALLOWED_HOSTS=''), dict(DJANGO_ALLOWED_HOSTS='*'),
-                    dict(DJANGO_DB_NAME=''), dict(DJANGO_DB_USER='')]:
+        for env in [dict(PROGRAM_SECRET_KEY=''), dict(PROGRAM_SECRET_KEY='development-only-change-this-key'),
+                    dict(PROGRAM_ALLOWED_HOSTS=''), dict(PROGRAM_ALLOWED_HOSTS='*'),
+                    dict(PROGRAM_DB_NAME=''), dict(PROGRAM_DB_USER='')]:
             with self.subTest(env=env):
                 result = self.load(**env)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn('ImproperlyConfigured', result.stderr)
 
     def test_proxy_and_persistent_media(self):
-        result = self.load(DJANGO_TRUST_PROXY_SSL_HEADER='1', DJANGO_MEDIA_ROOT='/data/media')
+        result = self.load(PROGRAM_TRUST_PROXY_SSL_HEADER='1', PROGRAM_MEDIA_ROOT='/data/media')
         self.assertEqual(result.returncode, 0, result.stderr)
         settings = json.loads(result.stdout)
         self.assertEqual(settings['SECURE_PROXY_SSL_HEADER'], ['HTTP_X_FORWARDED_PROTO', 'https'])
@@ -67,6 +67,6 @@ print(json.dumps({name: getattr(s, name, None) for name in names}, default=str))
                 self.assertEqual(settings['BASE_DIR'], str(Path(__file__).resolve().parent.parent))
 
     def test_explicit_sqlite_for_migration(self):
-        result = self.load(DJANGO_DB_ENGINE='sqlite', DJANGO_DB_NAME='/data/db.sqlite3')
+        result = self.load(PROGRAM_DB_ENGINE='sqlite', PROGRAM_DB_NAME='/data/db.sqlite3')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout)['DATABASES']['default']['NAME'], '/data/db.sqlite3')
