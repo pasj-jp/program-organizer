@@ -20,9 +20,39 @@ def published_directory(year):
     return Path(settings.PROCEEDINGS_PUBLISH_ROOT) / str(year) / 'web_publish'
 
 
+def generated_directory(year):
+    return published_directory(year).parent / '.generated'
+
+
+def publish_proceedings(year):
+    directory = generated_directory(year).resolve(strict=True)
+    if not (directory / PROCEEDINGS_LIST_FILE).is_file():
+        raise FileNotFoundError('No generated proceedings')
+    pointer = directory.parent / f'.publish-{uuid4().hex}'
+    try:
+        pointer.symlink_to(directory.name, target_is_directory=True)
+        os.replace(pointer, published_directory(year))
+    finally:
+        pointer.unlink(missing_ok=True)
+
+
+def unpublish_proceedings(year):
+    published = published_directory(year)
+    # Preserve publications created before the private generation pointer existed.
+    if published.exists() and not generated_directory(year).exists():
+        directory = published.resolve(strict=True)
+        pointer = directory.parent / f'.generate-{uuid4().hex}'
+        try:
+            pointer.symlink_to(directory.name, target_is_directory=True)
+            os.replace(pointer, generated_directory(year))
+        finally:
+            pointer.unlink(missing_ok=True)
+    published.unlink(missing_ok=True)
+
+
 @contextmanager
-def publication_directory(year):
-    """Stage a complete generation, publishing it only when the caller succeeds."""
+def generation_directory(year):
+    """Save a complete private generation only when the caller succeeds."""
     year_dir = published_directory(year).parent
     year_dir.mkdir(parents=True, exist_ok=True)
     generation = Path(mkdtemp(prefix='.proceedings-', dir=year_dir))
@@ -30,7 +60,7 @@ def publication_directory(year):
     try:
         yield generation
         pointer.symlink_to(generation.name, target_is_directory=True)
-        os.replace(pointer, published_directory(year))
+        os.replace(pointer, generated_directory(year))
     except Exception:
         pointer.unlink(missing_ok=True)
         shutil.rmtree(generation)
@@ -38,8 +68,11 @@ def publication_directory(year):
 
 
 def download_pdf(year):
-    # Resolve once so concurrent publication cannot mix generations.
-    directory = published_directory(year).resolve(strict=True)
+    # Resolve once so concurrent generation cannot mix files.
+    source = generated_directory(year)
+    if not source.exists():
+        source = published_directory(year)
+    directory = source.resolve(strict=True)
     records = json.loads((directory / PROCEEDINGS_LIST_FILE).read_text(encoding='utf-8'))
     result = TemporaryFile()
     try:

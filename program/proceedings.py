@@ -11,7 +11,7 @@ from django.conf import settings
 
 from .models import Presentation
 from .proceedings_publish import (
-    CODE_PATTERN, PAGE_DATA_FILE, PROCEEDINGS_LIST_FILE, publication_directory,
+    CODE_PATTERN, PAGE_DATA_FILE, PROCEEDINGS_LIST_FILE, generation_directory,
 )
 from .program_data import iter_program_rows
 from .proceedings_pdf import process_pdf
@@ -88,7 +88,7 @@ def build_proceedings(meeting, options):
     if not any(talk.proceedings_file for talk in ordered):
         raise ProceedingsError('採番・セッション割り当て済みの演題にPDFがありません。')
     try:
-        with publication_directory(meeting.year) as directory, TemporaryDirectory(prefix='pasj-proceedings-') as workdir:
+        with generation_directory(meeting.year) as directory, TemporaryDirectory(prefix='pasj-proceedings-') as workdir:
             next_page = options['start_page']
             records = []
             for index, talk in enumerate(ordered, 1):
@@ -100,5 +100,5 @@ def build_proceedings(meeting, options):
                 records.append({'index': index, 'talk_id': talk.program_number, 'start_page': start_page})
             write_page_lists(directory, records)
     except OSError as exc:
-        logger.warning('Proceedings publication failed: meeting=%s', meeting.pk, exc_info=True)
-        raise ProceedingsError('加工済みPDFを保存できません。管理者は公開先の保存パスと書き込み権限を確認してください。') from exc
+        logger.warning('Proceedings generation failed: meeting=%s', meeting.pk, exc_info=True)
+        raise ProceedingsError('加工済みPDFを保存できません。管理者は生成先の保存パスと書き込み権限を確認してください。') from exc

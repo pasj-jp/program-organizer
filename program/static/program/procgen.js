@@ -36,3 +36,28 @@
         showSelection();
     });
 })();
+
+
+(() => {
+    const dialog = document.getElementById('proceedings-settings');
+    if (!dialog) return;
+    const form = document.getElementById('proceedings-build');
+    const open = () => {
+        if (!dialog.open) dialog.showModal();
+    };
+    document.getElementById('proceedings-settings-open').addEventListener('click', open);
+    document.getElementById('proceedings-settings-close').addEventListener('click', () => dialog.close());
+    document.getElementById('proceedings-settings-apply').addEventListener('click', () => {
+        if (form.reportValidity()) dialog.close();
+    });
+    // Open hidden invalid fields before the browser tries to focus them.
+    form.addEventListener('invalid', open, true);
+    // Enter in a setting field applies settings without starting generation.
+    dialog.addEventListener('keydown', event => {
+        if (event.key === 'Enter' && event.target.matches('input')) {
+            event.preventDefault();
+            if (form.reportValidity()) dialog.close();
+        }
+    });
+    if (dialog.dataset.hasErrors === 'true') open();
+})();

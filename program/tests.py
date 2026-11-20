@@ -1335,6 +1335,9 @@ class ProceedingsBuildTests(TestCase):
         options.update(kwargs)
         return self.client.post(self.url, options)
 
+    def publish(self):
+        return self.client.post(self.url, {'action': 'publish'})
+
     def test_layout_page_sequence_metadata_and_original_preserved(self):
         import pymupdf
         import json
@@ -1362,8 +1365,8 @@ class ProceedingsBuildTests(TestCase):
             self.assertIn('ZZ01', merged[1].get_text())
             self.assertIn('FRP001', merged[2].get_text())
             self.assertIn('- 12 -', merged[2].get_text())
-        from program.proceedings_publish import published_directory
-        directory = published_directory(2027)
+        from program.proceedings_publish import generated_directory
+        directory = generated_directory(2027)
         records = json.loads((directory / 'proceedings_list.json').read_text())
         self.assertEqual([(r['talk_id'], r['start_page']) for r in records],
                          [('ZZ01', 10), ('FRP001', 12), ('ZZ02', None)])
@@ -1443,6 +1446,8 @@ class ProceedingsBuildTests(TestCase):
         self.assertEqual(public.get(url).status_code, 404)
         response = self.build()
         response.close()
+        self.assertEqual(public.get(url).status_code, 404)
+        self.assertRedirects(self.publish(), self.url)
         path = Path(self.media.name) / 'published/2027/web_publish/FRP001.pdf'
         first = path.read_bytes()
         response = public.get(url)
@@ -1461,10 +1466,14 @@ class ProceedingsBuildTests(TestCase):
         head.close()
         self.save_pdf(self.talk, self.pdf_bytes(2))
         self.build(start_page=20).close()
+        self.assertEqual(path.read_bytes(), first)
+        self.assertRedirects(self.publish(), self.url)
         self.assertNotEqual(path.read_bytes(), first)
-        # Renumbering only takes effect on public files when a complete batch is rebuilt.
+        # Renumbering takes effect on public files after generation and publication.
         Presentation.objects.filter(pk=self.talk.pk).update(program_number='FRP003')
         self.build().close()
+        self.assertEqual(public.get(url).status_code, 200)
+        self.publish().close()
         self.assertEqual(public.get(url).status_code, 404)
         response = public.get('/2027/web_publish/FRP003.pdf')
         self.assertEqual(response.status_code, 200)
@@ -1475,6 +1484,7 @@ class ProceedingsBuildTests(TestCase):
         self.assign(self.talk)
         self.save_pdf(self.talk, self.pdf_bytes())
         self.build().close()
+        self.publish().close()
         path = Path(self.media.name) / 'published/2027/web_publish/FRP001.pdf'
         original = path.read_bytes()
         self.save_pdf(self.talk, self.pdf_bytes(2))
@@ -1490,7 +1500,7 @@ class ProceedingsBuildTests(TestCase):
         self.assertEqual(path.read_bytes(), original)
 
 
-    def test_download_is_separate_and_uses_published_snapshot(self):
+    def test_download_is_separate_and_uses_generated_snapshot(self):
         url = reverse('proceedings_download', args=[2027])
         self.assertEqual(self.client.get(url).status_code, 404)
         self.assign(self.talk)
@@ -1506,8 +1516,8 @@ class ProceedingsBuildTests(TestCase):
         self.assertEqual(response.status_code, 200)
         import pymupdf
         with pymupdf.open(stream=b''.join(response.streaming_content), filetype='pdf') as merged:
-            from program.proceedings_publish import published_directory
-            with pymupdf.open(published_directory(2027) / 'FRP001.pdf') as source:
+            from program.proceedings_publish import generated_directory
+            with pymupdf.open(generated_directory(2027) / 'FRP001.pdf') as source:
                 self.assertEqual(merged.page_count, source.page_count)
                 self.assertEqual(merged[0].get_text(), source[0].get_text())
         self.assertEqual(self.client.get(reverse('proceedings_download', args=[2028])).status_code, 404)
@@ -1516,3 +1526,67 @@ class ProceedingsBuildTests(TestCase):
         self.assertEqual(self.client.get(url).status_code, 403)
         self.client.logout()
         self.assertEqual(self.client.get(url).status_code, 302)
+
+
+    def test_publish_requires_generation_permissions_and_csrf(self):
+        from django.test import Client
+        self.assertContains(self.client.post(self.url, {'action': 'publish'}, follow=True),
+                            '先に加工済みPDFを生成してください。')
+        csrf_client = Client(enforce_csrf_checks=True)
+        csrf_client.force_login(self.user)
+        self.assertEqual(csrf_client.post(self.url, {'action': 'publish'}).status_code, 403)
+        self.user.user_permissions.remove(Permission.objects.get(
+            content_type__app_label='program', codename='change_presentation'))
+        self.assertEqual(self.publish().status_code, 403)
+        self.assertNotContains(self.client.get(self.url), 'id="proceedings-publish"')
+        self.client.logout()
+        self.assertEqual(self.publish().status_code, 302)
+
+    def test_publish_uses_generated_snapshot_and_failure_preserves_publication(self):
+        from program.proceedings_publish import published_directory
+        self.assign(self.talk)
+        self.save_pdf(self.talk, self.pdf_bytes())
+        self.build().close()
+        self.save_pdf(self.talk, b'%PDF-broken')
+        with patch('program.views.build_proceedings', side_effect=AssertionError('must not regenerate')):
+            self.assertRedirects(self.publish(), self.url)
+        path = published_directory(2027) / 'FRP001.pdf'
+        original = path.read_bytes()
+        self.save_pdf(self.talk, self.pdf_bytes(2))
+        self.build().close()
+        with patch('program.proceedings_publish.os.replace', side_effect=OSError('disk error')):
+            self.assertContains(self.client.post(self.url, {'action': 'publish'}, follow=True),
+                                '公開設定を変更できません')
+        self.assertEqual(path.read_bytes(), original)
+        self.assertRedirects(self.publish(), self.url)
+        self.assertNotEqual(path.read_bytes(), original)
+
+
+    def test_publication_switch_off_and_on_preserves_files(self):
+        from django.test import Client
+        from program.proceedings_publish import generated_directory
+        self.assign(self.talk)
+        self.save_pdf(self.talk, self.pdf_bytes())
+        self.build().close()
+        self.publish().close()
+        self.assertContains(self.client.get(self.url), 'aria-checked="true"')
+        self.assertRedirects(self.client.post(self.url, {'action': 'unpublish'}), self.url)
+        self.assertEqual(Client().get('/2027/web_publish/FRP001.pdf').status_code, 404)
+        self.assertTrue((generated_directory(2027) / 'FRP001.pdf').is_file())
+        self.assertContains(self.client.get(self.url), 'aria-checked="false"')
+        download = self.client.get(reverse('proceedings_download', args=[2027]))
+        self.assertEqual(download.status_code, 200)
+        download.close()
+        self.publish().close()
+        response = Client().get('/2027/web_publish/FRP001.pdf')
+        self.assertEqual(response.status_code, 200)
+        response.close()
+
+    def test_unpublish_permissions_and_csrf(self):
+        from django.test import Client
+        csrf_client = Client(enforce_csrf_checks=True)
+        csrf_client.force_login(self.user)
+        self.assertEqual(csrf_client.post(self.url, {'action': 'unpublish'}).status_code, 403)
+        self.user.user_permissions.remove(Permission.objects.get(
+            content_type__app_label='program', codename='change_presentation'))
+        self.assertEqual(self.client.post(self.url, {'action': 'unpublish'}).status_code, 403)

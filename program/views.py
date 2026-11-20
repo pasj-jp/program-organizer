@@ -15,7 +15,7 @@ from .models import AnnualMeeting, Presentation, Session
 from .forms import AbstractExcelImportForm, BoardPresentationForm, ProgramExcelImportForm, SessionChairsForm, SessionForm
 from .forms import ProceedingsUploadForm, ProceedingsBuildForm
 from .proceedings import ProceedingsError, build_proceedings, header_defaults, save_uploads
-from .proceedings_publish import CODE_PATTERN, published_directory, download_pdf
+from .proceedings_publish import CODE_PATTERN, published_directory, generated_directory, publish_proceedings, unpublish_proceedings, download_pdf
 from .timetable import build_timetable
 from .program_excel import export_program, import_program
 from .program_json import export_program_json as build_program_json
@@ -45,12 +45,27 @@ def procgen_index(request):
 def procgen(request, year):
     _require_permissions(request.user, 'view_presentation')
     meeting = get_object_or_404(AnnualMeeting, start_date__year=year)
+    publishing = request.method == 'POST' and request.POST.get('action') in ('publish', 'unpublish')
     building = request.method == 'POST' and request.POST.get('action') == 'build'
     build_form = ProceedingsBuildForm(request.POST if building else None, initial=header_defaults(meeting))
-    form = ProceedingsUploadForm(request.POST if request.method == 'POST' and not building else None,
+    form = ProceedingsUploadForm(request.POST if request.method == 'POST' and not building and not publishing else None,
                                  request.FILES or None, meeting=meeting)
     if request.method == 'POST':
         _require_permissions(request.user, 'change_presentation')
+        if publishing:
+            try:
+                if request.POST.get('action') == 'unpublish':
+                    unpublish_proceedings(year)
+                else:
+                    publish_proceedings(year)
+            except FileNotFoundError:
+                messages.error(request, '先に加工済みPDFを生成してください。')
+            except OSError:
+                messages.error(request, '公開設定を変更できません。公開先の保存パスと書き込み権限を確認してください。')
+            else:
+                messages.success(request, '加工済みPDFを非公開にしました。' if request.POST.get('action') == 'unpublish'
+                                 else '生成済みの加工済みPDFを公開しました。')
+            return redirect('procgen', year=year)
         if building:
             if build_form.is_valid():
                 try:
@@ -58,7 +73,7 @@ def procgen(request, year):
                 except ProceedingsError as exc:
                     build_form.add_error(None, str(exc))
                 else:
-                    messages.success(request, '加工済みPDFを生成・公開しました。結合PDFはダウンロードボタンから取得できます。')
+                    messages.success(request, '加工済みPDFを生成しました。結合PDFで確認後、公開スイッチをオンにしてください。公開中の場合は「生成結果を公開内容に反映」を押してください。')
                     return redirect('procgen', year=year)
         elif form.is_valid():
             save_uploads(form.uploads)
@@ -71,6 +86,7 @@ def procgen(request, year):
     return render(request, 'program/procgen.html', {
         'meeting': meeting, 'form': form, 'build_form': build_form,
         'presentations': presentations,
+        'has_generated_proceedings': (generated_directory(year) / 'proceedings_list.json').is_file(),
         'has_published_proceedings': (published_directory(year) / 'proceedings_list.json').is_file(),
         'can_upload': request.user.has_perm('program.change_presentation'),
     })
