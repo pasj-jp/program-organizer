@@ -1338,6 +1338,101 @@ class ProceedingsBuildTests(TestCase):
     def publish(self):
         return self.client.post(self.url, {'action': 'publish'})
 
+    def metadata(self, **kwargs):
+        data = dict(action='metadata', title='PASJ2027 Proceedings',
+                    pdfBaseURL='https://example.org/PDF', disclosure='2028年3月17日 公開',
+                    copyrightNotice='著作権表示')
+        data.update(kwargs)
+        return self.client.post(self.url, data)
+
+    def test_metadata_uses_published_snapshot(self):
+        self.assign(self.talk)
+        missing = Presentation.objects.create(annual_meeting=self.meeting, submission_number='2',
+            program_number='ZZ02', title='PDFなし')
+        self.assign(missing, 2)
+        Presentation.objects.filter(pk=self.talk.pk).update(status='withdrawn')
+        self.save_pdf(self.talk, self.pdf_bytes(2))
+        self.build()
+        self.assertContains(self.metadata(), 'メタデータ付きの公開済みPDFがありません')
+        self.publish()
+        response = self.metadata()
+        self.assertEqual(response['Content-Type'], 'application/json; charset=utf-8')
+        self.assertIn('proceedings_2027.json', response['Content-Disposition'])
+        data = response.json()
+        self.assertEqual(set(data), {'year', 'title', 'pdfBaseURL', 'disclosure', 'copyrightNotice', 'records'})
+        self.assertEqual(data['year'], '2027')
+        self.assertEqual(data['pdfBaseURL'], 'https://example.org/PDF')
+        from .proceedings_publish import publication_disclosure
+        self.assertEqual(data['disclosure'], publication_disclosure(2027))
+        self.assertEqual([(r['index'], r['talk_id'], r['start_page'], r['pdf_path'])
+                          for r in data['records']],
+                         [(1, 'FRP001', 10, 'FRP001.pdf'), (2, 'ZZ02', None, None)])
+        self.assertEqual(data['records'][0]['title_ja'], '対象演題')
+        self.assertEqual(data['records'][0]['coauthors'][0]['last_name'], '講演')
+        Presentation.objects.filter(pk=self.talk.pk).update(title='変更後')
+        self.build(start_page=20)
+        self.assertEqual(self.metadata().json(), data)
+        self.publish()
+        updated = self.metadata().json()['records'][0]
+        self.assertEqual(updated['start_page'], 20)
+        self.assertEqual(updated['title_ja'], '変更後')
+        self.client.post(self.url, {'action': 'unpublish'})
+        self.assertContains(self.metadata(), 'メタデータ付きの公開済みPDFがありません')
+
+    def test_metadata_publication_time_and_settings_dialog(self):
+        from datetime import datetime, timezone
+        from unittest.mock import patch
+        from .proceedings_publish import publish_proceedings
+        self.assign(self.talk)
+        self.save_pdf(self.talk, self.pdf_bytes())
+        self.build()
+        page = self.client.get(self.url)
+        self.assertContains(page, 'id="metadata-settings-open"')
+        self.assertContains(page, '<dialog class="proceedings-settings" id="metadata-settings"')
+        self.assertNotContains(page, 'name="disclosure"')
+        with patch('program.proceedings_publish.timezone.now',
+                   return_value=datetime(2028, 3, 16, 16, 23, tzinfo=timezone.utc)):
+            publish_proceedings(2027)
+        self.assertEqual(self.metadata(disclosure='偽の日時').json()['disclosure'],
+                         '2028年03月17日 公開')
+        self.build()
+        self.assertEqual(self.metadata().json()['disclosure'], '2028年03月17日 公開')
+        with patch('program.proceedings_publish.timezone.now',
+                   return_value=datetime(2028, 4, 1, 0, 5, tzinfo=timezone.utc)):
+            publish_proceedings(2027)
+        self.assertEqual(self.metadata().json()['disclosure'], '2028年04月01日 公開')
+        self.client.post(self.url, {'action': 'unpublish'})
+        self.assertContains(self.client.get(self.url), '公開表示: 未公開')
+        with patch('program.proceedings_publish.timezone.now',
+                   return_value=datetime(2028, 4, 2, 0, 5, tzinfo=timezone.utc)):
+            publish_proceedings(2027)
+        self.assertEqual(self.metadata().json()['disclosure'], '2028年04月02日 公開')
+        invalid = self.metadata(pdfBaseURL='invalid')
+        self.assertContains(invalid, 'data-has-errors="true"')
+
+    def test_metadata_permissions_validation_and_legacy_generation(self):
+        self.assign(self.talk)
+        self.save_pdf(self.talk, self.pdf_bytes())
+        self.build()
+        self.publish()
+        invalid = self.metadata(pdfBaseURL='invalid')
+        self.assertEqual(invalid.context['metadata_form'].errors.as_data()['pdfBaseURL'][0].code, 'invalid')
+        self.user.user_permissions.remove(Permission.objects.get(
+            content_type__app_label='program', codename='change_presentation'))
+        self.assertEqual(self.metadata().status_code, 200)
+        self.assertEqual(self.metadata().json()['year'], '2027')
+        self.assertContains(self.client.post(reverse('procgen', args=[2028]), {
+            'action': 'metadata', 'title': 'Other', 'pdfBaseURL': 'https://example.org/PDF'}),
+            'メタデータ付きの公開済みPDFがありません')
+        from .proceedings_publish import published_directory
+        from .proceedings_json import METADATA_FILE
+        (published_directory(2027) / METADATA_FILE).unlink()
+        self.assertContains(self.metadata(), '加工済みPDFを生成し、公開内容に反映してください')
+        self.user.user_permissions.clear()
+        self.assertEqual(self.metadata().status_code, 403)
+        self.client.logout()
+        self.assertEqual(self.metadata().status_code, 302)
+
     def test_layout_page_sequence_metadata_and_original_preserved(self):
         import pymupdf
         import json

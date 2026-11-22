@@ -5,9 +5,9 @@
 body{font-family:system-ui,sans-serif;background:#f4f6f8;color:#17212b;margin:0}header{background:#17324d;color:white;padding:1rem 1.5rem}h1{font-size:1.4rem;margin:0}main{padding:1.5rem;max-width:1400px;margin:auto}nav{margin-bottom:1rem}a{color:#185184}form{background:white;padding:1rem;border:1px solid #cbd5df;border-radius:8px;margin:1rem 0}button{background:#17324d;color:white;border:0;border-radius:5px;padding:.6rem 1rem;cursor:pointer}input{max-width:100%}.table-wrap{overflow-x:auto}table{border-collapse:collapse;width:100%;background:white}caption{text-align:left;padding:.75rem 0}th,td{border-bottom:1px solid #cbd5df;padding:.8rem;text-align:left}th{background:#e8eef5}th:first-child,td:first-child,td:last-child{white-space:nowrap}.dot{display:inline-block;width:.8rem;height:.8rem;border-radius:50%;margin-right:.4rem;background:#8793a1}.dot.uploaded{background:#19833b}.withdrawn .talk-info{text-decoration:line-through;color:#65717d}.errorlist{color:#a21c22}.success{color:#146c2e}
 .drop-zone{border:2px dashed #8793a1;border-radius:8px;padding:1.5rem;margin:1rem 0}.drop-zone.drag-over{border-color:#185184;background:#e8eef5}button:disabled{opacity:.6;cursor:not-allowed}#proceedings-upload button:disabled{cursor:wait}
 header #proceedings-publish{display:flex;align-items:center;flex-wrap:wrap;gap:.6rem;margin:0;padding:0;border:0;background:none;font-size:.9rem}
-.proceedings-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(300px,360px);gap:1.5rem;align-items:start}.proceedings-content,.proceedings-sidebar{min-width:0}.proceedings-sidebar form{margin:0 0 1rem}.proceedings-sidebar h2{font-size:1.1rem;margin-top:0}.proceedings-sidebar p{font-size:.9rem;line-height:1.6;overflow-wrap:anywhere}.proceedings-sidebar input:not([type="hidden"]){box-sizing:border-box;width:100%}.proceedings-content>form:first-child{margin-top:0}
+.proceedings-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(300px,360px);gap:1.5rem;align-items:start}.proceedings-content,.proceedings-sidebar{min-width:0}.proceedings-sidebar form{margin:0 0 1rem}.proceedings-sidebar h2{font-size:1.1rem;margin-top:0}.proceedings-sidebar p{font-size:.9rem;line-height:1.6;overflow-wrap:anywhere}.proceedings-sidebar textarea,.proceedings-sidebar input:not([type="hidden"]){box-sizing:border-box;width:100%}.proceedings-content>form:first-child{margin-top:0}
 @media(max-width:900px){.proceedings-layout{grid-template-columns:minmax(0,1fr)}}
-.generation-heading,.settings-heading{display:flex;align-items:center;justify-content:space-between;gap:1rem}.generation-heading h2,.settings-heading h2{margin:0}.settings-button{background:transparent;color:#17324d;font-size:1.5rem;line-height:1;padding:.4rem}.settings-gear{display:block}.settings-button:hover{background:#e8eef5}#proceedings-settings{box-sizing:border-box;width:min(600px,calc(100% - 2rem));max-height:calc(100dvh - 2rem);overflow-y:auto;border:1px solid #cbd5df;border-radius:10px;padding:1.5rem;color:#17212b}#proceedings-settings::backdrop{background:rgb(0 0 0 / .4)}#proceedings-settings label{display:block;margin-bottom:.35rem}#proceedings-settings input{width:100%;box-sizing:border-box}#proceedings-settings summary{cursor:pointer}.settings-actions{display:flex;justify-content:flex-end;margin-top:1.5rem}
+.generation-heading,.settings-heading{display:flex;align-items:center;justify-content:space-between;gap:1rem}.generation-heading h2,.settings-heading h2{margin:0}.settings-button{background:transparent;color:#17324d;font-size:1.5rem;line-height:1;padding:.4rem}.settings-gear{display:block}.settings-button:hover{background:#e8eef5}.proceedings-settings{box-sizing:border-box;width:min(600px,calc(100% - 2rem));max-height:calc(100dvh - 2rem);overflow-y:auto;border:1px solid #cbd5df;border-radius:10px;padding:1.5rem;color:#17212b}.proceedings-settings::backdrop{background:rgb(0 0 0 / .4)}.proceedings-settings label{display:block;margin-bottom:.35rem}.proceedings-settings input{width:100%;box-sizing:border-box}.proceedings-settings summary{cursor:pointer}.settings-actions{display:flex;justify-content:flex-end;margin-top:1.5rem}
 </style><link rel="stylesheet" href="{% static 'program/publication.css' %}"><link rel="stylesheet" href="{% static 'program/account.css' %}"></head><body>
 <header><h1>{{ meeting.name }}・プロシーディングス</h1>
 {% if can_upload %}<form method="post" id="proceedings-publish">
@@ -51,7 +51,7 @@ header #proceedings-publish{display:flex;align-items:center;flex-wrap:wrap;gap:.
 <p>設定を確認して生成し、結合PDFで仕上がりを確認してください。</p>
 <button type="submit">加工済みPDFを生成</button>
 <p>生成結果は非公開で保存されます。</p>
-<dialog id="proceedings-settings" aria-labelledby="proceedings-settings-title" data-has-errors="{{ build_form.errors|yesno:'true,false' }}">
+<dialog class="proceedings-settings" id="proceedings-settings" aria-labelledby="proceedings-settings-title" data-has-errors="{{ build_form.errors|yesno:'true,false' }}">
 <div class="settings-heading"><h2 id="proceedings-settings-title">PDF生成設定</h2>
 <button type="button" id="proceedings-settings-close" class="settings-button" aria-label="設定を閉じる">×</button></div>
 <p>巻名と2行のヘッダーを欧文で入力してください。講演番号と通しページ番号も付与します。</p>
@@ -74,6 +74,22 @@ header #proceedings-publish{display:flex;align-items:center;flex-wrap:wrap;gap:.
 <form method="get" action="{% url 'proceedings_download' meeting.year %}">
 <button type="submit"{% if not has_generated_proceedings and not has_published_proceedings %} disabled{% endif %}>結合PDFをダウンロード</button>
 <p>{% if has_generated_proceedings or has_published_proceedings %}最後に生成したPDF（未生成の場合は公開済みPDF）をプログラム順に結合し、1つのPDFとしてダウンロードします。再生成は行いません。{% else %}先に加工済みPDFを生成してください。{% endif %}</p>
+</form>
+<form method="post" id="proceedings-metadata">
+{% csrf_token %}<input type="hidden" name="action" value="metadata">
+<div class="generation-heading"><h2>公開用メタデータ</h2>
+<button type="button" id="metadata-settings-open" class="settings-button" aria-label="メタデータ設定を開く" title="メタデータ設定" aria-haspopup="dialog" aria-controls="metadata-settings"><svg class="settings-gear" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true" focusable="false"><polygon points="19.39,8.94 19.83,10.34 22.37,10.36 22.37,13.64 19.83,13.66 19.39,15.06 19.39,15.06 18.71,16.36 20.49,18.17 18.17,20.49 16.36,18.71 15.06,19.39 15.06,19.39 13.66,19.83 13.64,22.37 10.36,22.37 10.34,19.83 8.94,19.39 8.94,19.39 7.64,18.71 5.83,20.49 3.51,18.17 5.29,16.36 4.61,15.06 4.61,15.06 4.17,13.66 1.63,13.64 1.63,10.36 4.17,10.34 4.61,8.94 4.61,8.94 5.29,7.64 3.51,5.83 5.83,3.51 7.64,5.29 8.94,4.61 8.94,4.61 10.34,4.17 10.36,1.63 13.64,1.63 13.66,4.17 15.06,4.61 15.06,4.61 16.36,5.29 18.17,3.51 20.49,5.83 18.71,7.64 19.39,8.94"/><circle cx="12" cy="12" r="3.3"/></svg></button></div>
+<dialog class="proceedings-settings" id="metadata-settings" aria-labelledby="metadata-settings-title" data-has-errors="{{ metadata_form.errors|yesno:'true,false' }}">
+<div class="settings-heading"><h2 id="metadata-settings-title">メタデータ設定</h2>
+<button type="button" id="metadata-settings-close" class="settings-button" aria-label="設定を閉じる">×</button></div>
+{{ metadata_form.as_p }}
+<p>公開表示は公開操作時の日付（日本時間）が自動で入ります。</p>
+<div class="settings-actions"><button type="button" id="metadata-settings-apply">設定を適用して閉じる</button></div>
+</dialog>
+<p>公開表示: {{ publication_disclosure|default:'未公開' }}</p>
+<button type="submit"{% if not has_published_proceedings %} disabled{% endif %}>JSONをダウンロード</button>
+<p>公開中のPDFに対応する演題情報と開始ページを出力します。PDFのない演題も含みます。公開表示は公開スイッチをオンにした日付です。公開内容の反映・再公開時に更新されます。</p>
+<p>proceedings_{{ meeting.year }}.json を別サイトの pasj_proceedings_builder/data/ に置いてください。編成変更後はPDFを再生成し、公開内容に反映してから取得してください。</p>
 </form>
 </aside>
 </div>

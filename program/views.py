@@ -13,9 +13,11 @@ from django.views.decorators.http import require_POST
 from django.views.decorators.cache import never_cache
 from .models import AnnualMeeting, Presentation, Session
 from .forms import AbstractExcelImportForm, BoardPresentationForm, ProgramExcelImportForm, SessionChairsForm, SessionForm
-from .forms import ProceedingsUploadForm, ProceedingsBuildForm
+from .forms import ProceedingsUploadForm, ProceedingsBuildForm, ProceedingsMetadataForm
+from .proceedings_json import METADATA_FILE, COPYRIGHT_NOTICE
+from django.urls import reverse
 from .proceedings import ProceedingsError, build_proceedings, header_defaults, save_uploads
-from .proceedings_publish import CODE_PATTERN, published_directory, generated_directory, publish_proceedings, unpublish_proceedings, download_pdf
+from .proceedings_publish import CODE_PATTERN, published_directory, generated_directory, publish_proceedings, unpublish_proceedings, download_pdf, publication_disclosure
 from .timetable import build_timetable
 from .program_excel import export_program, import_program
 from .program_json import export_program_json as build_program_json
@@ -45,12 +47,32 @@ def procgen_index(request):
 def procgen(request, year):
     _require_permissions(request.user, 'view_presentation')
     meeting = get_object_or_404(AnnualMeeting, start_date__year=year)
+    exporting = request.method == 'POST' and request.POST.get('action') == 'metadata'
+    metadata_form = ProceedingsMetadataForm(request.POST if exporting else None, initial={
+        'title': f'PASJ{year} Proceedings',
+        'pdfBaseURL': request.build_absolute_uri(reverse(
+            'published_proceedings_pdf', args=[year, 'placeholder'])).rsplit('/', 1)[0],
+        'copyrightNotice': COPYRIGHT_NOTICE,
+    })
+    if exporting and metadata_form.is_valid():
+        try:
+            directory = published_directory(year).resolve(strict=True)
+            records = json.loads((directory / METADATA_FILE).read_text(encoding='utf-8'))
+        except (FileNotFoundError, NotADirectoryError):
+            metadata_form.add_error(None, 'メタデータ付きの公開済みPDFがありません。加工済みPDFを生成し、公開内容に反映してください。')
+        else:
+            data = dict(year=str(year), **metadata_form.cleaned_data,
+                        disclosure=publication_disclosure(year), records=records)
+            response = HttpResponse(json.dumps(data, ensure_ascii=False, indent=2) + '\n',
+                                    content_type='application/json; charset=utf-8')
+            response['Content-Disposition'] = f'attachment; filename="proceedings_{year}.json"'
+            return response
     publishing = request.method == 'POST' and request.POST.get('action') in ('publish', 'unpublish')
     building = request.method == 'POST' and request.POST.get('action') == 'build'
     build_form = ProceedingsBuildForm(request.POST if building else None, initial=header_defaults(meeting))
-    form = ProceedingsUploadForm(request.POST if request.method == 'POST' and not building and not publishing else None,
+    form = ProceedingsUploadForm(request.POST if request.method == 'POST' and not building and not publishing and not exporting else None,
                                  request.FILES or None, meeting=meeting)
-    if request.method == 'POST':
+    if request.method == 'POST' and not exporting:
         _require_permissions(request.user, 'change_presentation')
         if publishing:
             try:
@@ -84,7 +106,8 @@ def procgen(request, year):
         talk.has_published_pdf = bool(re.fullmatch(CODE_PATTERN, talk.program_number or '') and
             (published_directory(year) / f'{talk.program_number}.pdf').is_file())
     return render(request, 'program/procgen.html', {
-        'meeting': meeting, 'form': form, 'build_form': build_form,
+        'meeting': meeting, 'form': form, 'build_form': build_form, 'metadata_form': metadata_form,
+        'publication_disclosure': publication_disclosure(year),
         'presentations': presentations,
         'uploaded_count': sum(bool(talk.proceedings_file and talk.program_number) for talk in presentations),
         'has_generated_proceedings': (generated_directory(year) / 'proceedings_list.json').is_file(),

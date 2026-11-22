@@ -63,6 +63,14 @@ class ProceedingsUploadForm(forms.Form):
         return presentation
 
 
+class ProceedingsMetadataForm(forms.Form):
+    title = forms.CharField(label='タイトル', max_length=200)
+    pdfBaseURL = forms.URLField(label='PDFの基準URL', max_length=2000,
+        help_text='公開PDFを置くディレクトリのURL（ファイル名を除く）')
+    copyrightNotice = forms.CharField(label='著作権表示', required=False,
+        widget=forms.Textarea(attrs={'rows': 4}))
+
+
 class ProceedingsBuildForm(forms.Form):
     volume = forms.CharField(label='巻名', max_length=40)
     header1 = forms.CharField(label='ヘッダー1行目', max_length=150,

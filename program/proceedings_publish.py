@@ -3,6 +3,9 @@ import os
 import json
 import re
 import shutil
+from datetime import datetime
+from zoneinfo import ZoneInfo
+from django.utils import timezone
 from pathlib import Path
 from contextlib import contextmanager
 from tempfile import mkdtemp, TemporaryFile, TemporaryDirectory
@@ -31,9 +34,23 @@ def publish_proceedings(year):
     pointer = directory.parent / f'.publish-{uuid4().hex}'
     try:
         pointer.symlink_to(directory.name, target_is_directory=True)
+        # The publication pointer carries this publication's timestamp, independently
+        # of the generated files. Rebuilding cannot change the public disclosure.
+        published_at = timezone.now().timestamp()
+        os.utime(pointer, (published_at, published_at), follow_symlinks=False)
         os.replace(pointer, published_directory(year))
     finally:
         pointer.unlink(missing_ok=True)
+
+
+def publication_disclosure(year):
+    try:
+        stamp = published_directory(year).lstat().st_mtime
+    except FileNotFoundError:
+        return ''
+    published_at = datetime.fromtimestamp(stamp, tz=ZoneInfo('Asia/Tokyo'))
+    return published_at.strftime('%Y年%m月%d日 公開')
+
 
 
 def unpublish_proceedings(year):

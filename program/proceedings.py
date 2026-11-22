@@ -13,6 +13,7 @@ from .models import Presentation
 from .proceedings_publish import (
     CODE_PATTERN, PAGE_DATA_FILE, PROCEEDINGS_LIST_FILE, generation_directory,
 )
+from .proceedings_json import write_metadata_snapshot
 from .program_data import iter_program_rows
 from .proceedings_pdf import process_pdf
 from .program_print import strip_html
@@ -99,6 +100,7 @@ def build_proceedings(meeting, options):
                         talk, directory, Path(workdir) / 'source.pdf', start_page, options)
                 records.append({'index': index, 'talk_id': talk.program_number, 'start_page': start_page})
             write_page_lists(directory, records)
+            write_metadata_snapshot(directory, meeting, records)
     except OSError as exc:
         logger.warning('Proceedings generation failed: meeting=%s', meeting.pk, exc_info=True)
         raise ProceedingsError('加工済みPDFを保存できません。管理者は生成先の保存パスと書き込み権限を確認してください。') from exc
