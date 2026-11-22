@@ -86,6 +86,7 @@ def procgen(request, year):
     return render(request, 'program/procgen.html', {
         'meeting': meeting, 'form': form, 'build_form': build_form,
         'presentations': presentations,
+        'uploaded_count': sum(bool(talk.proceedings_file and talk.program_number) for talk in presentations),
         'has_generated_proceedings': (generated_directory(year) / 'proceedings_list.json').is_file(),
         'has_published_proceedings': (published_directory(year) / 'proceedings_list.json').is_file(),
         'can_upload': request.user.has_perm('program.change_presentation'),

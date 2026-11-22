@@ -4,12 +4,19 @@
 <style>
 body{font-family:system-ui,sans-serif;background:#f4f6f8;color:#17212b;margin:0}header{background:#17324d;color:white;padding:1rem 1.5rem}h1{font-size:1.4rem;margin:0}main{padding:1.5rem;max-width:1400px;margin:auto}nav{margin-bottom:1rem}a{color:#185184}form{background:white;padding:1rem;border:1px solid #cbd5df;border-radius:8px;margin:1rem 0}button{background:#17324d;color:white;border:0;border-radius:5px;padding:.6rem 1rem;cursor:pointer}input{max-width:100%}.table-wrap{overflow-x:auto}table{border-collapse:collapse;width:100%;background:white}caption{text-align:left;padding:.75rem 0}th,td{border-bottom:1px solid #cbd5df;padding:.8rem;text-align:left}th{background:#e8eef5}th:first-child,td:first-child,td:last-child{white-space:nowrap}.dot{display:inline-block;width:.8rem;height:.8rem;border-radius:50%;margin-right:.4rem;background:#8793a1}.dot.uploaded{background:#19833b}.withdrawn .talk-info{text-decoration:line-through;color:#65717d}.errorlist{color:#a21c22}.success{color:#146c2e}
 .drop-zone{border:2px dashed #8793a1;border-radius:8px;padding:1.5rem;margin:1rem 0}.drop-zone.drag-over{border-color:#185184;background:#e8eef5}button:disabled{opacity:.6;cursor:not-allowed}#proceedings-upload button:disabled{cursor:wait}
-.publication-switch{display:inline-flex;align-items:center;gap:.6rem}.switch-track{display:inline-block;width:2.6rem;height:1.4rem;border-radius:1rem;background:#73808c;position:relative}.switch-track::after{content:"";position:absolute;width:1rem;height:1rem;top:.2rem;left:.2rem;background:white;border-radius:50%}.publication-switch[aria-checked="true"] .switch-track{background:#19833b}.publication-switch[aria-checked="true"] .switch-track::after{left:1.4rem}
+header #proceedings-publish{display:flex;align-items:center;flex-wrap:wrap;gap:.6rem;margin:0;padding:0;border:0;background:none;font-size:.9rem}
 .proceedings-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(300px,360px);gap:1.5rem;align-items:start}.proceedings-content,.proceedings-sidebar{min-width:0}.proceedings-sidebar form{margin:0 0 1rem}.proceedings-sidebar h2{font-size:1.1rem;margin-top:0}.proceedings-sidebar p{font-size:.9rem;line-height:1.6;overflow-wrap:anywhere}.proceedings-sidebar input:not([type="hidden"]){box-sizing:border-box;width:100%}.proceedings-content>form:first-child{margin-top:0}
 @media(max-width:900px){.proceedings-layout{grid-template-columns:minmax(0,1fr)}}
 .generation-heading,.settings-heading{display:flex;align-items:center;justify-content:space-between;gap:1rem}.generation-heading h2,.settings-heading h2{margin:0}.settings-button{background:transparent;color:#17324d;font-size:1.5rem;line-height:1;padding:.4rem}.settings-gear{display:block}.settings-button:hover{background:#e8eef5}#proceedings-settings{box-sizing:border-box;width:min(600px,calc(100% - 2rem));max-height:calc(100dvh - 2rem);overflow-y:auto;border:1px solid #cbd5df;border-radius:10px;padding:1.5rem;color:#17212b}#proceedings-settings::backdrop{background:rgb(0 0 0 / .4)}#proceedings-settings label{display:block;margin-bottom:.35rem}#proceedings-settings input{width:100%;box-sizing:border-box}#proceedings-settings summary{cursor:pointer}.settings-actions{display:flex;justify-content:flex-end;margin-top:1.5rem}
-</style><link rel="stylesheet" href="{% static 'program/account.css' %}"></head><body>
-<header><h1>{{ meeting.name }}・プロシーディングス</h1>{% include 'program/_account_menu.html' %}</header><main>
+</style><link rel="stylesheet" href="{% static 'program/publication.css' %}"><link rel="stylesheet" href="{% static 'program/account.css' %}"></head><body>
+<header><h1>{{ meeting.name }}・プロシーディングス</h1>
+{% if can_upload %}<form method="post" id="proceedings-publish">
+{% csrf_token %}<input type="hidden" name="action" value="{% if has_published_proceedings %}unpublish{% else %}publish{% endif %}">
+<span title="ヘッダーの公開スイッチをオンにすると最後に生成したPDFをログイン不要の /{{ meeting.year }}/web_publish/講演番号.pdf で公開します。オフにすると公開URLから閲覧できなくなります。生成済みPDFは保持します。">加工済みPDFの公開</span>
+<button type="submit" class="publication-switch" role="switch" aria-label="加工済みPDFの公開" aria-checked="{{ has_published_proceedings|yesno:'true,false' }}"{% if not has_generated_proceedings and not has_published_proceedings %} disabled{% endif %}><span aria-hidden="true"></span></button>
+<strong>{{ has_published_proceedings|yesno:'公開中,非公開' }}</strong>
+</form>{% endif %}
+{% include 'program/_account_menu.html' %}</header><main>
 <nav><a href="{% url 'procgen_index' %}">年会選択</a> / <a href="{% url 'organize' meeting.year %}">セッション編成</a></nav>
 {% for message in messages %}<p class="{{ message.tags }}" role="status">{{ message }}</p>{% endfor %}
 <div class="proceedings-layout">
@@ -26,7 +33,7 @@ body{font-family:system-ui,sans-serif;background:#f4f6f8;color:#17212b;margin:0}
 <button type="submit">アップロード</button>
 </form>{% endif %}
 <div class="table-wrap"><table>
-<caption>演題一覧（{{ presentations|length }}件）</caption>
+<caption>演題一覧（{{ presentations|length }}件）・アップロード済み {{ uploaded_count }}件</caption>
 <thead><tr><th scope="col">プログラムコード</th><th scope="col">題目</th><th scope="col">講演者</th><th scope="col">Status</th></tr></thead>
 <tbody>{% for talk in presentations %}<tr{% if talk.status == 'withdrawn' %} class="withdrawn"{% endif %}>
 <td class="talk-info">{{ talk.program_number|default:'未採番' }}</td>
@@ -57,12 +64,8 @@ body{font-family:system-ui,sans-serif;background:#f4f6f8;color:#17212b;margin:0}
 <div class="settings-actions"><button type="button" id="proceedings-settings-apply">設定を適用して閉じる</button></div>
 </dialog>
 </form>{% endif %}
-{% if can_upload %}<form method="post" id="proceedings-publish">
-{% csrf_token %}<input type="hidden" name="action" value="{% if has_published_proceedings %}unpublish{% else %}publish{% endif %}">
-<h2>加工済みPDFの公開</h2>
-<button type="submit" class="publication-switch" role="switch" aria-label="加工済みPDFの公開" aria-checked="{{ has_published_proceedings|yesno:'true,false' }}"{% if not has_generated_proceedings and not has_published_proceedings %} disabled{% endif %}><span class="switch-track" aria-hidden="true"></span>{% if has_published_proceedings %}公開中{% else %}非公開{% endif %}</button>
-<p>{% if not has_generated_proceedings %}先に加工済みPDFを生成してください。{% endif %}スイッチをオンにすると最後に生成したPDFをログイン不要の /{{ meeting.year }}/web_publish/講演番号.pdf で公開します。オフにすると公開URLから閲覧できなくなります。生成済みPDFは保持します。</p>
-</form>
+{% if can_upload %}
+{% if not has_generated_proceedings %}<p>先に加工済みPDFを生成してください。</p>{% endif %}
 {% if has_published_proceedings and has_generated_proceedings %}<form method="post">
 {% csrf_token %}<input type="hidden" name="action" value="publish">
 <button type="submit">生成結果を公開内容に反映</button>
