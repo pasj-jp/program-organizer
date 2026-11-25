@@ -157,6 +157,7 @@ def published_proceedings_pdf(request, year, program_code):
                         content_type='application/pdf')
 
 
+@never_cache
 @login_required
 def organize_index(request):
     _require_board_view_permission(request.user)
@@ -419,6 +420,7 @@ def move_presentation(request):
 
 
 @never_cache
+@login_required
 def timetable_index(request):
     return render(request, 'program/timetable_index.html', {
         'meetings': AnnualMeeting.objects.filter(timetable_published=True)})

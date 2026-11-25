@@ -1,12 +1,13 @@
 from django.contrib import admin
 from django.contrib.auth import views as auth_views
 from django.urls import path
+from django.views.generic import RedirectView
 from program import views
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('login/', auth_views.LoginView.as_view(template_name='registration/login.html'), name='login'),
-    path('logout/', auth_views.LogoutView.as_view(next_page='timetable_index', http_method_names=['post', 'options']), name='logout'),
+    path('logout/', auth_views.LogoutView.as_view(next_page='organize_index', http_method_names=['post', 'options']), name='logout'),
     path('password-reset/', auth_views.PasswordResetView.as_view(
         template_name='registration/password_reset_form.html',
         email_template_name='registration/password_reset_email.txt',
@@ -17,7 +18,7 @@ urlpatterns = [
         template_name='registration/password_reset_confirm.html'), name='password_reset_confirm'),
     path('reset/done/', auth_views.PasswordResetCompleteView.as_view(
         template_name='registration/password_reset_complete.html'), name='password_reset_complete'),
-    path('organize/', views.organize_index, name='organize_index'),
+    path('organize/', RedirectView.as_view(pattern_name='organize_index', query_string=True)),
     path('procgen/', views.procgen_index, name='procgen_index'),
     path('procgen/<int:year>/download/', views.proceedings_download, name='proceedings_download'),
     path('procgen/<int:year>/', views.procgen, name='procgen'),
@@ -40,5 +41,6 @@ urlpatterns = [
     path('timetable/<int:year>/', views.timetable, name='timetable_legacy'),
     path('<int:year>/web_publish/<str:program_code>.pdf', views.published_proceedings_pdf, name='published_proceedings_pdf'),
     path('<int:year>/', views.timetable, name='timetable'),
-    path('', views.timetable_index, name='timetable_index'),
+    path('timetable/', views.timetable_index, name='timetable_index'),
+    path('', views.organize_index, name='organize_index'),
 ]

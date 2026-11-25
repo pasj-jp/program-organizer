@@ -1188,7 +1188,7 @@ class TimetablePublicationTests(TestCase):
         self.assertContains(self.client.get(reverse('organize', args=[2026])), 'aria-checked="false"')
         self.assertContains(self.client.get(reverse('organize', args=[2026]) + '?tab=timetable'), 'aria-checked="false"')
         anonymous = self.client_class()
-        self.assertNotContains(anonymous.get(reverse('timetable_index')), '/2026/')
+        self.assertNotContains(self.client.get(reverse('timetable_index')), '/2026/')
         for route in ['timetable', 'timetable_legacy']:
             for client in [anonymous, self.client]:
                 pending = client.get(reverse(route, args=[2026]))
@@ -1201,7 +1201,7 @@ class TimetablePublicationTests(TestCase):
         self.assertEqual(anonymous.get(reverse('timetable', args=[2099])).status_code, 404)
         self.assertRedirects(self.client.post(url, {'published': 'true', 'tab': 'timetable'}),
                              reverse('organize', args=[2026]) + '?tab=timetable')
-        self.assertContains(anonymous.get(reverse('timetable_index')), '/2026/')
+        self.assertContains(self.client.get(reverse('timetable_index')), '/2026/')
         response = anonymous.get(reverse('timetable', args=[2026]))
         self.assertEqual(response.status_code, 200)
         self.assertIn('no-store', response['Cache-Control'])
@@ -1241,11 +1241,21 @@ class AccountTests(TestCase):
         self.meeting = AnnualMeeting.objects.create(name='認証テスト年会', abbreviation='AUTH',
             start_date=date(2026, 9, 19), end_date=date(2026, 9, 21), location='東京')
 
+    def test_top_page_requires_login_and_returns_after_login(self):
+        self.assertRedirects(self.client.get('/'), '/login/?next=/')
+        self.assertRedirects(self.client.post('/login/?next=/', {
+            'username': self.user.username, 'password': 'original-password-834',
+        }), '/')
+        self.assertTemplateUsed(self.client.get('/'), 'program/organize_index.html')
+        self.assertEqual(reverse('organize_index'), '/')
+        self.assertContains(self.client.get('/'), '/organize/2026/')
+        self.assertRedirects(self.client.get('/organize/'), '/')
+
     def test_account_menu_and_post_only_logout(self):
         from django.test import Client
         client = Client(enforce_csrf_checks=True)
         client.force_login(self.user)
-        for url in ['/organize/', '/organize/2026/', '/organize/2026/?tab=timetable',
+        for url in ['/', '/organize/2026/', '/organize/2026/?tab=timetable',
                     '/organize/legacy-sessions/', '/procgen/', '/procgen/2026/']:
             with self.subTest(url=url):
                 response = client.get(url)
@@ -1254,9 +1264,12 @@ class AccountTests(TestCase):
         self.assertEqual(client.get(reverse('logout')).status_code, 405)
         self.assertEqual(client.post(reverse('logout')).status_code, 403)
         self.assertRedirects(client.post(reverse('logout'), {
-            'csrfmiddlewaretoken': client.cookies['csrftoken'].value}), '/')
+            'csrfmiddlewaretoken': client.cookies['csrftoken'].value}), '/',
+            fetch_redirect_response=False)
+        self.assertRedirects(client.get('/'), '/login/?next=/')
         self.assertNotIn('_auth_user_id', client.session)
-        self.assertRedirects(client.get('/organize/'), '/login/?next=/organize/')
+        response = client.get('/organize/', follow=True)
+        self.assertEqual(response.redirect_chain, [('/', 302), ('/login/?next=/', 302)])
 
     def reset_link(self):
         import re
