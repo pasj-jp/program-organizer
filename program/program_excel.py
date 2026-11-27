@@ -26,16 +26,50 @@ def cell(row, number):
     return str(value).strip() if value is not None else ''
 
 
-def authors_from_row(row, talk):
-    authors = []
+def update_program_authors(row, talk, available, line):
+    """Apply author details and reconcile the duplicated presenter summary fields."""
+    existing = {author.position: author for author in talk.authors.all()}
+    old_presenter = next((author for author in existing.values() if author.is_presenter), None)
+    summary_baseline = {field: getattr(old_presenter, field) if old_presenter else ''
+                        for field in AUTHOR_FIELDS[:8]}
+    authors = {}
     for position in range(1, MAX_AUTHORS + 1):
         column = author_column(position)
-        if not (cell(row, column + 1) or cell(row, column + 2)):
-            continue
-        fields = {name: cell(row, column + index) for index, name in enumerate(AUTHOR_FIELDS, start=1)}
-        authors.append(Author(presentation=talk, position=position,
-                              is_presenter='登壇者' in cell(row, column), **fields))
-    return authors
+        author = existing.get(position)
+        if author is None:
+            author = Author(presentation=talk, position=position)
+        if column in available:
+            author.is_presenter = '登壇者' in cell(row, column)
+        for offset, field in enumerate(AUTHOR_FIELDS, start=1):
+            if column + offset in available:
+                setattr(author, field, cell(row, column + offset))
+        authors[position] = author
+
+    presenter = next((author for author in authors.values() if author.is_presenter), None)
+    if presenter is None and any(cell(row, column) for column in range(16, 24)):
+        # Files without coauthor columns can still provide the presenter summary.
+        if not any(author_column(pos) in available for pos in authors):
+            presenter = authors[1]
+            presenter.is_presenter = True
+    if presenter is not None:
+        for column, field in enumerate(AUTHOR_FIELDS[:8], start=16):
+            if column not in available:
+                continue
+            summary = cell(row, column)
+            detail = getattr(presenter, field)
+            baseline = summary_baseline[field]
+            detail_column = author_column(presenter.position) + AUTHOR_FIELDS.index(field) + 1
+            if summary == detail:
+                continue
+            if detail_column not in available or (summary != baseline and detail == baseline):
+                setattr(presenter, field, summary)
+            elif summary != baseline:
+                raise ValueError(f'{line}行目: 講演者の「{HEADERS[column - 1]}」と連名者欄の値が矛盾しています。')
+    for author in authors.values():
+        if any(getattr(author, field) for field in ('family_name', 'given_name', 'family_name_en', 'given_name_en')):
+            author.save()
+        elif author.pk:
+            author.delete()
 
 
 def parse_day(value, meeting, row_number):
@@ -138,7 +172,7 @@ def program_slots(row, meeting, row_number, kind):
     return slots
 
 
-def read_program(file, meeting):
+def read_program(file, meeting, *, include_columns=False):
     try:
         book = load_workbook(file, read_only=True, data_only=True)
     except Exception as exc:
@@ -173,14 +207,15 @@ def read_program(file, meeting):
             groups.setdefault(key, []).append((row_number, row))
         if not groups:
             raise ValueError('取り込む演題がありません。')
-        return groups
+        return (groups, source_positions) if include_columns else groups
     finally:
         book.close()
 
 
 @transaction.atomic
 def import_program(file, meeting):
-    groups = read_program(file, meeting)
+    groups, source_positions = read_program(file, meeting, include_columns=True)
+    available = {index + 1 for index, source in enumerate(source_positions) if source is not None}
     numbers = [cell(row, 3) for rows in groups.values() for _, row in rows]
     existing = {talk.submission_number: talk for talk in Presentation.objects.filter(
         annual_meeting=meeting, submission_number__in=numbers)}
@@ -259,13 +294,24 @@ def import_program(file, meeting):
                 created += 1
             else:
                 updated += 1
-            if not talk.authors.exists():
-                Author.objects.bulk_create(authors_from_row(row, talk))
+            source_fields = {2: 'login_id', 4: 'registration_number', 15: 'email',
+                             34: 'title', 35: 'title_en', 36: 'abstract',
+                             37: 'category_first', 38: 'category_second',
+                             48: 'author_text', 49: 'author_text_en',
+                             50: 'affiliation_text', 51: 'affiliation_text_en'}
+            for column, field in source_fields.items():
+                if column in available or (column == 37 and 8 in available):
+                    setattr(talk, field, cell(row, column))
+            if not talk.title:
+                raise ValueError(f'{line}行目: {number} の題目がありません。')
+            talk.save(update_fields=list(source_fields.values()))
+            update_program_authors(row, talk, available, line)
             category = chosen_category(talk, cell(row, 7))
             Presentation.objects.filter(pk=talk.pk).update(
                 session=session, session_order=position, confirmed_category=category,
                 presentation_format=cell(row, 5), program_number=cell(row, 9) or None,
-                applies_for_annual_award=annual_award_entry(cell(row, 39)))
+                applies_for_annual_award=(annual_award_entry(cell(row, 39))
+                                          if 39 in available else talk.applies_for_annual_award))
             chair = cell(row, 13)
             if session.kind == Session.Kind.ORAL and category and chair:
                 chair_key = (session.pk, category)

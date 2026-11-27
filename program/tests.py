@@ -254,6 +254,75 @@ class OrganizerTests(TestCase):
         self.assertEqual(self.client.get(reverse('organize', args=[2026])).status_code, 200)
         self.assertTrue(self.client.get(reverse('organize', args=[2026]) + '?tab=timetable').context['can_move_sessions'])
 
+    def test_program_excel_edits_update_existing_presentation_and_authors(self):
+        from .models import Author
+        from .program_data import author_column
+
+        self.session.date = self.meeting.start_date
+        self.session.venue = Venue.objects.create(annual_meeting=self.meeting, name='会場')
+        self.session.save()
+        self.first.session = self.session
+        self.first.session_order = 1
+        self.first.presentation_format = '口頭発表 [Oral]'
+        self.first.organizer_note = '保持するメモ'
+        self.first.status = Presentation.Status.WITHDRAWN
+        self.first.save()
+        Author.objects.create(presentation=self.first, position=1, is_presenter=True,
+                              family_name='山田', given_name='太郎', affiliation='旧所属')
+        Author.objects.create(presentation=self.first, position=2, family_name='旧共著者')
+
+        def edited_file(changes, omit=()):
+            book = load_workbook(BytesIO(export_program(self.meeting)))
+            for column, value in changes.items():
+                book.active.cell(2, column, value)
+            for column in sorted(omit, reverse=True):
+                book.active.delete_cols(column)
+            output = BytesIO()
+            book.save(output)
+            output.seek(0)
+            return output
+
+        import_program(edited_file({16: '鈴木', 23: '新所属', 34: '修正題目',
+                                   35: 'New title', 36: '修正要旨', 15: 'new@example.com',
+                                   48: '元表記も修正', 38: '第2希望',
+                                   author_column(2) + 1: '新共著者'}), self.meeting)
+        self.first.refresh_from_db()
+        self.assertEqual(self.first.title, '修正題目')
+        self.assertEqual(self.first.title_en, 'New title')
+        self.assertEqual(self.first.abstract, '修正要旨')
+        self.assertEqual(self.first.email, 'new@example.com')
+        self.assertEqual(self.first.author_text, '元表記も修正')
+        self.assertEqual(self.first.category_second, '第2希望')
+        self.assertEqual(self.first.organizer_note, '保持するメモ')
+        self.assertEqual(self.first.status, Presentation.Status.WITHDRAWN)
+        presenter = self.first.authors.get(position=1)
+        self.assertEqual((presenter.family_name, presenter.affiliation), ('鈴木', '新所属'))
+        self.assertEqual(self.first.authors.get(position=2).family_name, '新共著者')
+        import_program(edited_file({author_column(1) + 2: '次郎'}), self.meeting)
+        self.assertEqual(self.first.authors.get(position=1).given_name, '次郎')
+        # Conflicting duplicated fields reject the entire file, including title edits.
+        with self.assertRaisesMessage(ValueError, '矛盾'):
+            import_program(edited_file({16: '佐藤', author_column(1) + 1: '田中',
+                                        34: '取り込まない題目'}), self.meeting)
+        self.first.refresh_from_db()
+        self.assertEqual(self.first.title, '修正題目')
+        self.assertEqual(self.first.authors.get(position=1).family_name, '鈴木')
+        # Missing optional columns preserve database values; empty cells clear them.
+        import_program(edited_file({35: ''}, omit=(15,)), self.meeting)
+        self.first.refresh_from_db()
+        self.assertEqual(self.first.email, 'new@example.com')
+        self.assertEqual(self.first.title_en, '')
+        rows = list(load_workbook(BytesIO(export_program(self.meeting))).active.values)
+        self.assertEqual(rows[1][15:17], ('鈴木', '次郎'))
+        # A presenter change uses the coauthor marker; unchanged summary fields
+        # must not overwrite the newly selected presenter's name.
+        import_program(edited_file({author_column(1): '連名者',
+                                    author_column(2): '登壇者'}), self.meeting)
+        self.assertEqual(self.first.authors.get(is_presenter=True).family_name, '新共著者')
+        import_program(edited_file({author_column(1) + 1: '',
+                                    author_column(1) + 2: ''}), self.meeting)
+        self.assertFalse(self.first.authors.filter(position=1).exists())
+
     def test_program_excel_import_and_export_roundtrip(self):
         book = Workbook()
         sheet = book.active
